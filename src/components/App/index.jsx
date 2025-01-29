@@ -4,9 +4,14 @@ import { urlToday, urlTommorow } from "../../consts/url";
 import { CustomInput } from "../Inputs";
 import { CustomSelect } from "../Selects";
 import { Checkbox } from "../Checkboxes";
+
+import downloadjs from "downloadjs";
+import html2canvas from "html2canvas";
+
 import { v4 as uuidv4 } from "uuid";
 import { useCallback } from "react";
 import { lessonsTime } from "../../consts/timeSchedule";
+import { CopyTarification } from "../CopyTarification";
 import {
   TarificationWrapper,
   AddPanel,
@@ -23,6 +28,7 @@ import {
   MyCabinetInputWrapper,
   HeaderSchedule,
   CabinetNumber,
+  SetCabinetNumber,
 } from "./styled";
 import { ToggleButton } from "../ToggleButton";
 
@@ -41,11 +47,24 @@ function App() {
   const [showTarification, setShowTarification] = useState(false);
   const [isUrlToday, setIsUrlToday] = useState(false);
   const [isCabinetMode, setIsCabinetMode] = useState(false);
+  const [cabinetInputValue, setCabinetInputValue] = useState("");
+  const [myCabinet, setMyCabinet] = useState(
+    localStorage.getItem("userCabinet") || null
+  );
 
   const onLessonInputChange = (event) => {
     // console.log(event.target.value)
     setInputLessonValue(event.target.value);
     // setInputLessonValue(event.value);
+  };
+
+  const handleCaptureClick = async () => {
+    const canvas = await html2canvas(
+      document.querySelector(".scheduleWrapper")
+    );
+    const nameScreenshot = dateSchedule + ".png";
+    const dataURL = canvas.toDataURL("image/png");
+    downloadjs(dataURL, nameScreenshot, "image/png");
   };
 
   const handleCheckboxLab = () => {
@@ -58,6 +77,14 @@ function App() {
   const handleSelectGroup = (event) => {
     setSelectGroupValue(event.target.value);
   };
+
+  const handleCabinetInputChange = (event) => {
+    setCabinetInputValue(event.target.value);
+  };
+
+  // const handleChangeCabinet = (event) => {
+  // setMyCabinet(event.)
+  // }
 
   const addGroup = () => {
     const isDuplicate = userTarification.some(
@@ -135,10 +162,16 @@ function App() {
     filterSchedule();
   };
 
+  const handleSetMyCabinet = () => {
+    setMyCabinet(cabinetInputValue);
+    setCabinetInputValue("");
+    localStorage.setItem("userCabinet", cabinetInputValue);
+  };
+
   useEffect(() => {
     const fetchData = async () => {
       const [fetchedSchedule, fetchedMyCabinetLectures, dateSchedule] =
-        await getVGTK(isUrlToday ? urlToday : urlTommorow, "321");
+        await getVGTK(isUrlToday ? urlToday : urlTommorow, myCabinet);
       setSchedule(fetchedSchedule);
       setMyCabinetLectures(fetchedMyCabinetLectures);
       setDateSchedule(dateSchedule);
@@ -146,7 +179,7 @@ function App() {
     };
 
     fetchData();
-  }, [isUrlToday]);
+  }, [isUrlToday, myCabinet]);
 
   useEffect(() => {
     filterSchedule();
@@ -194,6 +227,7 @@ function App() {
         </AddPanel>
         {showTarification && (
           <>
+            <CopyTarification />
             Ваша тарификация:
             {userTarification.map((el) => (
               <TarificationWrapper
@@ -213,12 +247,16 @@ function App() {
           </>
         )}
       </Tarification>
-
       <div>
         <HeaderSchedule>
           <MyCabinetInputWrapper>
-            <MyCabinetInput type="text" placeholder="Ваш кабинет" />
-            <div>+</div>
+            <MyCabinetInput
+              onChange={handleCabinetInputChange}
+              value={cabinetInputValue}
+              type="text"
+              placeholder={`Ваш кабинет: ${myCabinet}`}
+            />
+            <SetCabinetNumber onClick={handleSetMyCabinet}>+</SetCabinetNumber>
           </MyCabinetInputWrapper>
           <div>
             <ToggleButton
@@ -230,26 +268,29 @@ function App() {
           </div>
         </HeaderSchedule>
 
-        {!isCabinetMode &&
-          mySchedule.map((el) => (
-            <LessonWrapper key={el.lessonNumber}>
-              <CabinetNumber>{el.lessonNumber}</CabinetNumber>
-              <LessonName>{lessonsTime[el.lessonNumber]}</LessonName>
-              <LessonName>{el.lessonName}</LessonName>
-              <GroupName>{el.groupName}</GroupName>
-              <CabinetNumber>{el.cabinet}</CabinetNumber>
-            </LessonWrapper>
-          ))}
-        {isCabinetMode &&
-          myCabinetLectures.map((el) => (
-            <LessonWrapper key={el.lessonNumber}>
-              <CabinetNumber>{el.lessonNumber}</CabinetNumber>
-              <LessonName>{lessonsTime[el.lessonNumber]}</LessonName>
-              <LessonName>{el.lessonName}</LessonName>
-              <GroupName>{el.groupName}</GroupName>
-              <CabinetNumber>{el.cabinet}</CabinetNumber>
-            </LessonWrapper>
-          ))}
+        <div className="scheduleWrapper">
+          {!isCabinetMode &&
+            mySchedule.map((el) => (
+              <LessonWrapper key={el.lessonNumber}>
+                <CabinetNumber>{el.lessonNumber}</CabinetNumber>
+                <LessonName>{lessonsTime[el.lessonNumber]}</LessonName>
+                <LessonName>{el.lessonName}</LessonName>
+                <GroupName>{el.groupName}</GroupName>
+                <CabinetNumber>{el.cabinet}</CabinetNumber>
+              </LessonWrapper>
+            ))}
+          {isCabinetMode &&
+            myCabinetLectures.map((el) => (
+              <LessonWrapper key={el.lessonNumber}>
+                <CabinetNumber>{el.lessonNumber}</CabinetNumber>
+                <LessonName>{lessonsTime[el.lessonNumber]}</LessonName>
+                <LessonName>{el.lessonName}</LessonName>
+                <GroupName>{el.groupName}</GroupName>
+                <CabinetNumber>{el.cabinet}</CabinetNumber>
+              </LessonWrapper>
+            ))}
+        </div>
+        <button onClick={handleCaptureClick}>Сохранить как изображение</button>
       </div>
     </AppWrapper>
   );

@@ -156,3 +156,17 @@ export const HeaderSchedule = styled.div`
 export const CabinetNumber = styled.div`
   width: 100px;
 `;
+export const SetCabinetNumber = styled.div`
+  transition: 0.2s;
+  width: 40px;
+  height: 40px;
+  background-color: transparent;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  &:hover {
+    cursor: pointer;
+    color: black;
+    background-color: lightgray;
+  }
+`;

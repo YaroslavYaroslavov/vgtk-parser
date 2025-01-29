@@ -5,17 +5,25 @@ export const splitRowspan2TD = (tableElement) => {
     let row = tableElement.rows[i];
     for (let j = 0; j < row.cells.length; j++) {
       let cell = row.cells[j];
-      if (
-        cell.hasAttribute("rowspan") &&
-        parseInt(cell.getAttribute("rowspan")) === 2
-      ) {
+      let rowspan = parseInt(cell.getAttribute("rowspan"));
+
+      if (cell.hasAttribute("rowspan") && rowspan > 1) {
+        // Сохраняем содержимое текущей ячейки
         let newCell = cell.cloneNode(true);
         cell.removeAttribute("rowspan");
-        newCell.removeAttribute("rowspan");
-        if (row.nextElementSibling) {
-          let nextRow = row.nextElementSibling;
-          let nextCell = nextRow.insertCell(j);
-          nextCell.innerHTML = newCell.innerHTML;
+
+        // Разделяем ячейки для всех следующих строк
+        for (let k = 1; k < rowspan; k++) {
+          let nextRow = tableElement.rows[i + k];
+          if (nextRow) {
+            // Перед добавлением ячейки проверьте, что индекс допустим
+            if (j <= nextRow.cells.length) {
+              let nextCell = nextRow.insertCell(j);
+              nextCell.innerHTML = newCell.innerHTML;
+            } else {
+              console.warn(`Недопустимый индекс: ${j} для строки ${i + k}`);
+            }
+          }
         }
       }
     }

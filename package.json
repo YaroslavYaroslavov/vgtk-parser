@@ -1,6 +1,6 @@
 {
   "name": "vgtk-t0-react",
-  "homepage": "https://yaroslavyaroslavov.github.io",
+  "homepage": ".",
   "private": true,
   "version": "0.0.0",
   "type": "module",
@@ -13,6 +13,10 @@
     "deploy": "gh-pages -d dist"
   },
   "dependencies": {
+    "downloadjs": "^1.4.7",
+    "html2canvas": "^1.4.1",
+    "qrcode.js": "^0.0.1",
+    "qrcode.react": "^4.1.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "styled-components": "^6.1.13",
