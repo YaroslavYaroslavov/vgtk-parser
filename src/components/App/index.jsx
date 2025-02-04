@@ -4,10 +4,12 @@ import { urlToday, urlTommorow } from "../../consts/url";
 import { CustomInput } from "../Inputs";
 import { CustomSelect } from "../Selects";
 import { Checkbox } from "../Checkboxes";
+import { ThemeSwitcher } from "../ThemeSwitcher";
 
 import downloadjs from "downloadjs";
 import html2canvas from "html2canvas";
 
+import { useTheme } from '../../hooks/use-theme';
 import { v4 as uuidv4 } from "uuid";
 import { useCallback } from "react";
 import { lessonsTime } from "../../consts/timeSchedule";
@@ -52,10 +54,10 @@ function App() {
     localStorage.getItem("userCabinet") || null
   );
 
+  const { theme, setTheme } = useTheme();
+
   const onLessonInputChange = (event) => {
-    // console.log(event.target.value)
     setInputLessonValue(event.target.value);
-    // setInputLessonValue(event.value);
   };
 
   const handleCaptureClick = async () => {
@@ -82,9 +84,10 @@ function App() {
     setCabinetInputValue(event.target.value);
   };
 
-  // const handleChangeCabinet = (event) => {
-  // setMyCabinet(event.)
-  // }
+  const handleChangeTheme = useCallback(() => {
+    theme === 'light' ? setTheme('dark') : setTheme('light');
+  }, [setTheme, theme]);
+  
 
   const addGroup = () => {
     const isDuplicate = userTarification.some(
@@ -175,7 +178,7 @@ function App() {
       setSchedule(fetchedSchedule);
       setMyCabinetLectures(fetchedMyCabinetLectures);
       setDateSchedule(dateSchedule);
-      // filterSchedule();
+    
     };
 
     fetchData();
@@ -194,6 +197,9 @@ function App() {
       >
         {dateSchedule}
       </DateSchedule>
+      <div className="switch">
+        <ThemeSwitcher handleChangeTheme={handleChangeTheme} theme={theme} />
+        </div>
       <Tarification>
         <AddPanel onSubmit={handleFormSubmit} action="">
           <CustomInput

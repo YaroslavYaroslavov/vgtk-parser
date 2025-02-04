@@ -113,7 +113,7 @@ export const FormButtonDelete = styled.button`
 export const DateSchedule = styled.button`
   font-size: 30px;
   margin-bottom: 20px;
-  color: white;
+  color: var(--text-color);
   background-color: transparent;
   border: none;
 `;
@@ -170,3 +170,10 @@ export const SetCabinetNumber = styled.div`
     background-color: lightgray;
   }
 `;
+
+export const Header = styled.div`
+
+  justify-content: space-between;
+
+
+`
