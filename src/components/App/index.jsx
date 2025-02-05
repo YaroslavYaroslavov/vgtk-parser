@@ -296,7 +296,7 @@ function App() {
               </LessonWrapper>
             ))}
         </div>
-        <button onClick={handleCaptureClick}>Сохранить как изображение</button>
+        <FormButton onClick={handleCaptureClick}>Сохранить как изображение</FormButton>
       </div>
     </AppWrapper>
   );

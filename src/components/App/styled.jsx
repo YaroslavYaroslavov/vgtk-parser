@@ -46,16 +46,16 @@ export const LessonInput = styled.input`
   align-items: center;
   justify-content: center;
   border: solid;
-  border-color: rgba(41, 37, 37, 1);
   border-radius: 5px;
-  background: rgba(56, 50, 50, 1);
   outline-width: 0;
-  /* margin */
   padding-right: 10px;
   padding-left: 10px;
-  color: white;
+  font-weight: bold;
+  color: var(--text-color);
+  border-color: var(--input-border-color);
+  background: var(--input-background-color);
   &:hover {
-    background: #706464;
+    background: var(--hover-color);
   }
 `;
 
@@ -80,16 +80,17 @@ export const FormButton = styled.button`
   align-items: center;
   justify-content: center;
   border: solid;
-  border-color: rgba(41, 37, 37, 1);
   border-radius: 5px;
-  background: rgba(56, 50, 50, 1);
   outline-width: 0;
   /* margin */
   padding-right: 10px;
   padding-left: 10px;
-  color: white;
+  font-weight: bold;
+  color: var(--text-color);
+  border-color: var(--input-border-color);
+  background: var(--input-background-color);
   &:hover {
-    background: #706464;
+    background: var(--hover-color);
   }
 `;
 export const FormButtonDelete = styled.button`
@@ -109,6 +110,14 @@ export const FormButtonDelete = styled.button`
   &:hover {
     background: #706464;
   }
+  font-weight: bold;
+  color: var(--text-color);
+  border-color: var(--input-border-color);
+  background: var(--input-background-color);
+  &:hover {
+    background: var(--hover-color);
+  }
+  
 `;
 export const DateSchedule = styled.button`
   font-size: 30px;
@@ -116,6 +125,8 @@ export const DateSchedule = styled.button`
   color: var(--text-color);
   background-color: transparent;
   border: none;
+
+  font-weight: bold;
 `;
 
 export const MyCabinetInput = styled.input`
@@ -123,13 +134,19 @@ export const MyCabinetInput = styled.input`
   margin-right: 10px;
   border: none;
   background: rgba(56, 50, 50, 1);
-  color: white;
+  color: var(--text-color);
   margin: 0;
   padding: 0;
   height: 40px;
   width: 150px;
   &:focus {
     outline-width: 0;
+  }
+  font-weight: bold;
+  
+  background: var(--input-background-color);
+  &:hover {
+    background: var(--hover-color);
   }
 `;
 export const MyCabinetInputWrapper = styled.div`
@@ -146,6 +163,13 @@ export const MyCabinetInputWrapper = styled.div`
   padding-right: 10px;
   padding-left: 10px;
   width: 170px;
+  font-weight: bold;
+  color: var(--text-color);
+  border-color: var(--input-border-color);
+  background: var(--input-background-color);
+  /* &:hover {
+    background: var(--hover-color);
+  } */
 `;
 
 export const HeaderSchedule = styled.div`

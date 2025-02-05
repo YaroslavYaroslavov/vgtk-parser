@@ -14,14 +14,17 @@ html[data-theme='dark'] {
     rgba(41, 37, 37, 1) 0%,
     rgba(56, 50, 50, 1) 100%
   );
-  --input-background-color: rgba(29, 34, 43, 1);
-  --hover-color: rgba(42, 50, 63, 1);
+  --input-border-color: rgba(41, 37, 37, 1);
+  --input-background-color: rgba(56, 50, 50, 1);
+  --hover-color: #706464;
+
 }
 html[data-theme='light'] {
   --text-color: rgba(0, 0, 0, 1);
   --background-color: #efefef;
-  --input-background-color: rgba(244, 246, 243, 1);
-  --hover-color: rgb(193, 193, 193);
+  --input-border-color: green;
+  --input-background-color: #efefef;
+  --hover-color: rgba(0, 0, 0, 0.156);
 }
 html,
 body {

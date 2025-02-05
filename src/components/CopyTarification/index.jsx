@@ -1,3 +1,5 @@
+import { FormButton } from "../App/styled";
+
 export const CopyTarification = () => {
   const myCabinet = localStorage.getItem("userCabinet") || null;
 
@@ -44,21 +46,21 @@ export const CopyTarification = () => {
   });
 
   return (
-    <div>
-      <button
+    <>
+      <FormButton
         onClick={() => {
           copyToClipboard(objectToStringify);
         }}
       >
         Экспорт
-      </button>
-      <button
+      </FormButton>
+      <FormButton
         onClick={() => {
           getClipboardData();
         }}
       >
         Импорт
-      </button>
-    </div>
+      </FormButton>
+    </>
   );
 };

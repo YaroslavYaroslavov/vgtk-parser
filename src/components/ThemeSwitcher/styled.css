@@ -2,7 +2,7 @@
     position: relative;
     width: 3.5rem;
     height: 2rem;
-    background-color: var(--color-black);
+    background-color: var(--background-color);
     border-radius: 5rem;
     appearance: none;
     transition: 0.3s ease;
@@ -10,7 +10,7 @@
     border: 2px solid var(--color-white);
 }
 .themeSwitcher:checked {
-    background-color: var(--color-white);
+    background-color: var(--background-color);
     border: 2px solid var(--color-black);
 }
 .themeSwitcher::before {

@@ -13,4 +13,13 @@ export const SelectStyled = styled.select`
   padding-right: 10px;
   padding-left: 10px;
   color: white;
+  
+
+  font-weight: bold;
+  color: var(--text-color);
+  border-color: var(--input-border-color);
+  background: var(--input-background-color);
+  &:hover {
+    background: var(--hover-color);
+  }
 `;

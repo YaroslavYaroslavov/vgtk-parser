@@ -12,6 +12,15 @@ const Button = styled.button`
   &:hover {
     opacity: 0.8;
   }
+  
+  
+  font-weight: bold;
+  color: var(--text-color);
+  border-color: var(--input-border-color);
+  background: var(--input-background-color);
+  &:hover {
+    background: var(--hover-color);
+  }
 `;
 
 export const ToggleButton = ({ handleClick }) => {
