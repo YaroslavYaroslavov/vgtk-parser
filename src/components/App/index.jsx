@@ -5,16 +5,20 @@ import { CustomInput } from "../Inputs";
 import { CustomSelect } from "../Selects";
 import { Checkbox } from "../Checkboxes";
 import { ThemeSwitcher } from "../ThemeSwitcher";
+import gerb from '../../assets/gerb.png'
+
 
 import downloadjs from "downloadjs";
 import html2canvas from "html2canvas";
 
+import Modal from "../Modal";
 import { useTheme } from '../../hooks/use-theme';
 import { v4 as uuidv4 } from "uuid";
 import { useCallback } from "react";
 import { lessonsTime } from "../../consts/timeSchedule";
 import { CopyTarification } from "../CopyTarification";
 import {
+  ImageGerb,
   TarificationWrapper,
   AddPanel,
   LessonWrapper,
@@ -31,10 +35,12 @@ import {
   HeaderSchedule,
   CabinetNumber,
   SetCabinetNumber,
+  Head
 } from "./styled";
 import { ToggleButton } from "../ToggleButton";
 
 function App() {
+  const [modalActive, setModalActive] = useState(false);
   const [schedule, setSchedule] = useState([]);
   const [mySchedule, setMySchedule] = useState([]);
   const [myCabinetLectures, setMyCabinetLectures] = useState([]);
@@ -50,6 +56,7 @@ function App() {
   const [isUrlToday, setIsUrlToday] = useState(false);
   const [isCabinetMode, setIsCabinetMode] = useState(false);
   const [cabinetInputValue, setCabinetInputValue] = useState("");
+  const [currentGroupModal, setCurrentGroupModal] = useState('')
   const [myCabinet, setMyCabinet] = useState(
     localStorage.getItem("userCabinet") || null
   );
@@ -59,6 +66,12 @@ function App() {
   const onLessonInputChange = (event) => {
     setInputLessonValue(event.target.value);
   };
+
+  const handleOpenModal = useCallback((groupName) => {
+    setModalActive(true);
+    setCurrentGroupModal(groupName)
+  }, []);
+
 
   const handleCaptureClick = async () => {
     const canvas = await html2canvas(
@@ -88,6 +101,37 @@ function App() {
     theme === 'light' ? setTheme('dark') : setTheme('light');
   }, [setTheme, theme]);
   
+
+  const addGroupFromModal = (lesson) => {
+    const isDuplicate = userTarification.some(
+      (group) =>
+        group.groupName === lesson.groupName &&
+        group.lesson === lesson.lessonName 
+    );
+    if (isDuplicate) {
+      alert('Группа с таким занятием уже существует. Удалите её в разделе "Редактировать" и внесите в ручном режиме.')
+    }
+    else {
+      console.log(lesson)
+
+      const newGroup = {
+        id: uuidv4(),
+        groupName: lesson.groupName,
+        lesson: lesson.lessonName,
+        lecture: !lesson.isLab,
+        labs: lesson.isLab,
+      };
+
+      setUserTarification((prev) => [...prev, newGroup]);
+
+      localStorage.setItem(
+        "userTarification",
+        JSON.stringify([...userTarification, newGroup])
+      );
+      filterSchedule();
+     
+    }
+  }
 
   const addGroup = () => {
     const isDuplicate = userTarification.some(
@@ -190,6 +234,10 @@ function App() {
 
   return (
     <AppWrapper>
+      <Head>
+        <a href="https://www.vgtk.by">
+        <ImageGerb src={gerb} alt="" />
+        </a>
       <DateSchedule
         onClick={() => {
           setIsUrlToday((prev) => !prev);
@@ -197,9 +245,8 @@ function App() {
       >
         {dateSchedule}
       </DateSchedule>
-      <div className="switch">
         <ThemeSwitcher handleChangeTheme={handleChangeTheme} theme={theme} />
-        </div>
+      </Head>
       <Tarification>
         <AddPanel onSubmit={handleFormSubmit} action="">
           <CustomInput
@@ -281,7 +328,7 @@ function App() {
                 <CabinetNumber>{el.lessonNumber}</CabinetNumber>
                 <LessonName>{lessonsTime[el.lessonNumber]}</LessonName>
                 <LessonName>{el.lessonName}</LessonName>
-                <GroupName>{el.groupName}</GroupName>
+                <GroupName onClick={()=>{handleOpenModal(el.groupName)}}>{el.groupName}</GroupName>
                 <CabinetNumber>{el.cabinet}</CabinetNumber>
               </LessonWrapper>
             ))}
@@ -291,13 +338,28 @@ function App() {
                 <CabinetNumber>{el.lessonNumber}</CabinetNumber>
                 <LessonName>{lessonsTime[el.lessonNumber]}</LessonName>
                 <LessonName>{el.lessonName}</LessonName>
-                <GroupName>{el.groupName}</GroupName>
+                <GroupName onClick={()=>{handleOpenModal(el.groupName)}}>{el.groupName}</GroupName>
                 <CabinetNumber>{el.cabinet}</CabinetNumber>
               </LessonWrapper>
             ))}
         </div>
         <FormButton onClick={handleCaptureClick}>Сохранить как изображение</FormButton>
       </div>
+      <Modal active={modalActive} setActive={setModalActive}>
+        
+        <div>Расписание группы {currentGroupModal}</div>
+       <div>{schedule.find(obj => obj.groupName === currentGroupModal)?.lessons.map((lesson) => (
+        <LessonWrapper key={lesson.lessonNumber}>
+          <CabinetNumber>{lesson.lessonNumber}</CabinetNumber>
+          <LessonName>{lessonsTime[lesson.lessonNumber]}</LessonName>
+          <LessonName>{lesson.lessonName}</LessonName>
+          <CabinetNumber>{lesson.cabinet}</CabinetNumber>
+          {lesson.cabinet && <FormButton onClick={()=> addGroupFromModal(lesson)}>Добавить</FormButton>}
+        </LessonWrapper>
+       ))}
+
+       </div>
+      </Modal>
     </AppWrapper>
   );
 }

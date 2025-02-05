@@ -74,6 +74,20 @@ export const CheckboxWrapper = styled.div`
   display: flex;
   flex-direction: column;
 `;
+export const Head = styled.header`
+width: 100%;
+height: 100px;
+margin-bottom: 40px;
+  display: flex;
+  justify-content: space-around;
+  align-items: center;
+`
+export const ImageGerb = styled.img`
+    width: 100px;
+    height: 100px;
+    
+`
+
 export const FormButton = styled.button`
   height: 30px;
   display: flex;
@@ -120,11 +134,15 @@ export const FormButtonDelete = styled.button`
   
 `;
 export const DateSchedule = styled.button`
+display: flex;
+align-items: center;
   font-size: 30px;
-  margin-bottom: 20px;
+  /* margin-bottom: 20px; */
+  /* padding: 20px; */
   color: var(--text-color);
   background-color: transparent;
   border: none;
+  
 
   font-weight: bold;
 `;
