@@ -23,7 +23,7 @@ const Button = styled.button`
   }
 `;
 
-export const ToggleButton = ({ handleClick }) => {
+export const ToggleButton = ({ handleClick, displayName, displayNameAlt }) => {
   const [isToggled, setIsToggled] = useState(false);
 
   const handleToggle = () => {
@@ -33,7 +33,7 @@ export const ToggleButton = ({ handleClick }) => {
 
   return (
     <Button isToggled={isToggled} onClick={handleToggle}>
-      {isToggled ? "Ваш кабинет" : "Ваше расписание"}
+      {isToggled ? displayName || 'Название' : displayNameAlt || "Алтернативное название"}
     </Button>
   );
 };

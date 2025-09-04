@@ -19,7 +19,7 @@ export const AddPanel = styled.form`
 
 export const LessonWrapper = styled.div`
   display: flex;
-  width: 600px;
+  width: 700px;
   justify-content: space-between;
   align-items: center;
   height: 55px;
@@ -27,14 +27,14 @@ export const LessonWrapper = styled.div`
   /* gap: 100px; */
 `;
 export const LessonName = styled.div`
-  width: 200px;
+  width: 300px;
 `;
 
 export const Tarification = styled.div`
   display: flex;
   flex-direction: column;
   align-items: center;
-  width: 600px;
+  width: 800px;
   justify-content: space-between;
   /* margin-top: 40px; */
   margin-bottom: 40px;
@@ -89,7 +89,8 @@ export const ImageGerb = styled.img`
 `
 
 export const FormButton = styled.button`
-  height: 30px;
+  height: 37px;
+  min-width: 100px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -100,6 +101,7 @@ export const FormButton = styled.button`
   padding-right: 10px;
   padding-left: 10px;
   font-weight: bold;
+  
   color: var(--text-color);
   border-color: var(--input-border-color);
   background: var(--input-background-color);
