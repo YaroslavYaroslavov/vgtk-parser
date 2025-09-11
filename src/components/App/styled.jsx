@@ -1,4 +1,14 @@
 import styled from "styled-components";
+const checkState = (handleState) => {
+  switch (handleState) {
+    case 0:
+      return `var(--input-background-color)`;
+    case 1:
+      return `green`;
+    case 2:
+      return `red`;
+  }
+};
 export const TarificationWrapper = styled.div`
   display: flex;
   width: 600px;
@@ -75,18 +85,18 @@ export const CheckboxWrapper = styled.div`
   flex-direction: column;
 `;
 export const Head = styled.header`
-width: 100%;
-height: 100px;
-margin-bottom: 40px;
+  width: 100%;
+  height: 100px;
+  margin-bottom: 40px;
   display: flex;
   justify-content: space-around;
   align-items: center;
-`
-export const ImageGerb = styled.img`
-    width: 100px;
-    height: 100px;
-    
-`
+`;
+export const ImageLogo = styled.img`
+  width: 100px;
+  height: 100px;
+  border-radius: 100%;
+`;
 
 export const FormButton = styled.button`
   height: 37px;
@@ -101,10 +111,11 @@ export const FormButton = styled.button`
   padding-right: 10px;
   padding-left: 10px;
   font-weight: bold;
-  
+
   color: var(--text-color);
   border-color: var(--input-border-color);
   background: var(--input-background-color);
+  border-color: ${(props) => checkState(props.handleState)};
   &:hover {
     background: var(--hover-color);
   }
@@ -133,18 +144,16 @@ export const FormButtonDelete = styled.button`
   &:hover {
     background: var(--hover-color);
   }
-  
 `;
 export const DateSchedule = styled.button`
-display: flex;
-align-items: center;
+  display: flex;
+  align-items: center;
   font-size: 30px;
   /* margin-bottom: 20px; */
   /* padding: 20px; */
   color: var(--text-color);
   background-color: transparent;
   border: none;
-  
 
   font-weight: bold;
 `;
@@ -163,7 +172,7 @@ export const MyCabinetInput = styled.input`
     outline-width: 0;
   }
   font-weight: bold;
-  
+
   background: var(--input-background-color);
   &:hover {
     background: var(--hover-color);
@@ -216,8 +225,5 @@ export const SetCabinetNumber = styled.div`
 `;
 
 export const Header = styled.div`
-
   justify-content: space-between;
-
-
-`
+`;

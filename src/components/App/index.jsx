@@ -1,4 +1,5 @@
 import { getVGTK } from "../../helpers/getVGTK";
+import { parseDateLabelToDDMMYYYY } from "../../helpers/parseDateLabelToDDMMYYYY";
 import { useEffect, useState } from "react";
 import { urlToday, urlTommorow } from "../../consts/url";
 import { CustomInput } from "../Inputs";
@@ -6,6 +7,7 @@ import { CustomSelect } from "../Selects";
 import { Checkbox } from "../Checkboxes";
 import { ThemeSwitcher } from "../ThemeSwitcher";
 import gerb from "../../assets/gerb.png";
+import inco from "../../assets/inco.png";
 
 import downloadjs from "downloadjs";
 import html2canvas from "html2canvas";
@@ -17,7 +19,7 @@ import { useCallback } from "react";
 import { lessonsTime } from "../../consts/timeSchedule";
 import { CopyTarification } from "../CopyTarification";
 import {
-  ImageGerb,
+  ImageLogo,
   TarificationWrapper,
   AddPanel,
   LessonWrapper,
@@ -39,9 +41,10 @@ import {
 import { ToggleButton } from "../ToggleButton";
 import { useAuthState } from "react-firebase-hooks/auth";
 import { auth } from "../../firebaseConfig/firebase";
-import { onValue, ref, set } from "firebase/database";
+import { onValue, ref, set, get, child } from "firebase/database";
 import { GoogleAuthProvider, signInWithPopup, signOut } from "firebase/auth";
 import { db } from "../../firebaseConfig/firebase";
+import { ScheduleTable } from "../HoursAccounting";
 const provider = new GoogleAuthProvider();
 
 function App() {
@@ -55,10 +58,13 @@ function App() {
   const [selectGroupValue, setSelectGroupValue] = useState("");
   const [checkboxLect, setCheckboxLect] = useState(false);
   const [checkboxLab, setCheckboxLab] = useState(false);
+  const [loadHours, setLoadHours] = useState(0);
+  const [fetchedHours, setFetchedHours] = useState(0);
   const [userTarification, setUserTarification] = useState(
     JSON.parse(localStorage.getItem("userTarification")) || []
   );
   const [showTarification, setShowTarification] = useState(false);
+  // const [isGuestMode, setIsGuestMode] = useState(true);
   const [advancedMode, setAdvancedMode] = useState(false);
   const [isUrlToday, setIsUrlToday] = useState(false);
   const [isCabinetMode, setIsCabinetMode] = useState(false);
@@ -77,6 +83,30 @@ function App() {
   const { theme, setTheme } = useTheme();
 
   // const dbUserReference = auth ? ref(db, `user/${auth?.currentUser?.uid}`) : "";
+
+  const saveUserTarification = (userTarification) => {
+    if (!user) {
+      console.log("Нет пользователя");
+      localStorage.setItem(
+        "userTarification",
+        JSON.stringify(userTarification)
+      );
+    } else {
+      // console.log('есть польз')
+      set(
+        ref(db, `users/${auth?.currentUser?.uid}/tarification`),
+        userTarification
+      );
+    }
+  };
+
+  const saveUserCabinet = (userCabinet) => {
+    if (!user) {
+      localStorage.setItem("userCabinet", userCabinet);
+    } else {
+      set(ref(db, `users/${auth?.currentUser?.uid}/cabinet`, userCabinet));
+    }
+  };
 
   const onLessonInputChange = (event) => {
     setInputLessonValue(event.target.value);
@@ -151,10 +181,7 @@ function App() {
       //   "userTarification",
       //   JSON.stringify([...userTarification, currentLessonModal])
       // );
-      localStorage.setItem(
-        "userTarification",
-        JSON.stringify(userTarification)
-      );
+      saveUserTarification(userTarification);
       filterSchedule();
     }
 
@@ -179,12 +206,24 @@ function App() {
 
       setUserTarification((prev) => [...prev, newGroup]);
 
-      localStorage.setItem(
-        "userTarification",
-        JSON.stringify([...userTarification, newGroup])
-      );
+      saveUserTarification([...userTarification, newGroup]);
       filterSchedule();
     }
+  };
+
+  const getHours = () => {
+    get(ref(db, `users/${auth?.currentUser?.uid}/hours`))
+      .then((snapshot) => {
+        if (snapshot.exists()) {
+          console.log(snapshot.val());
+          setFetchedHours(snapshot.val());
+        } else {
+          console.log("No data available");
+        }
+      })
+      .catch((error) => {
+        console.error(error);
+      });
   };
 
   const addGroup = () => {
@@ -210,10 +249,11 @@ function App() {
 
       setUserTarification((prev) => [...prev, newGroup]);
 
-      localStorage.setItem(
-        "userTarification",
-        JSON.stringify([...userTarification, newGroup])
-      );
+      // localStorage.setItem(
+      //   "userTarification",
+      //   JSON.stringify([...userTarification, newGroup])
+      // );
+      saveUserTarification([...userTarification, newGroup]);
       filterSchedule();
     }
   };
@@ -238,7 +278,7 @@ function App() {
           scheduleEntry.groupName.toLowerCase().trim() ===
             groupName.toLowerCase().trim() &&
           scheduleEntry.lessons.some((l) => {
-            const normalizedLessonName = l.lessonName.toLowerCase().trim();
+            const normalizedLessonName = l?.lessonName?.toLowerCase().trim();
 
             const matchesMainLesson =
               normalizedLessonName === lesson.toLowerCase().trim();
@@ -290,12 +330,57 @@ function App() {
   }, [schedule, userTarification]);
 
   const handleAddHoursClick = () => {
-    console.log(mySchedule);
+    const refDate = parseDateLabelToDDMMYYYY(dateSchedule);
+
+    const writeData = () => {
+      setLoadHours(1);
+      set(
+        ref(db, `users/${auth?.currentUser?.uid}/hours/${refDate}`),
+        mySchedule
+      )
+        .then(() => {
+          alert("Сохранено");
+          setLoadHours(1);
+          setTimeout(() => {
+            setLoadHours(0);
+          }, 5000);
+          getHours();
+
+          // Data saved successfully!
+        })
+        .catch((error) => {
+          console.log(error);
+          setLoadHours(2);
+          setTimeout(() => {
+            setLoadHours(0);
+          }, 5000);
+          // The write failed...
+        });
+    };
+
+    // console.log(mySchedule.length < 9);
+    if (mySchedule.length < 9) {
+      if (
+        confirm(
+          "Вы пытаетесь добавить в тарификацию меньше, чем 9 занятий, продолжить?"
+        )
+      ) {
+        writeData();
+      }
+    } else {
+      writeData();
+    }
   };
 
   const handleSignInClick = () =>
     signInWithPopup(auth, provider)
-      .then(() => {})
+      .then(() => {
+        // if()
+        // set(
+        //   ref(db, `users/${auth?.currentUser?.uid}/tarification`),
+        //   userTarification
+        // );
+      })
       .catch((error) => {
         // Handle Errors here.
         const errorCode = error.code;
@@ -324,10 +409,12 @@ function App() {
   const handleDeleteByID = (id) => {
     const updatedTarification = userTarification.filter((el) => el.id !== id);
     setUserTarification(updatedTarification);
-    localStorage.setItem(
-      "userTarification",
-      JSON.stringify(updatedTarification)
-    );
+    // localStorage.setItem(
+    //   "userTarification",
+    //   JSON.stringify(updatedTarification)
+    // );
+
+    saveUserTarification(updatedTarification);
 
     filterSchedule();
   };
@@ -347,7 +434,8 @@ function App() {
   const handleSetMyCabinet = () => {
     setMyCabinet(cabinetInputValue);
     setCabinetInputValue("");
-    localStorage.setItem("userCabinet", cabinetInputValue);
+    // localStorage.setItem("userCabinet", cabinetInputValue);
+    saveUserCabinet(cabinetInputValue);
   };
 
   useEffect(() => {
@@ -355,6 +443,8 @@ function App() {
       const [fetchedSchedule, fetchedMyCabinetLectures, dateSchedule] =
         await getVGTK(isUrlToday ? urlToday : urlTommorow, myCabinet);
       setSchedule(fetchedSchedule);
+      // console.log(fetchedSchedule);
+      // setSchedule([]);
       setMyCabinetLectures(fetchedMyCabinetLectures);
       setDateSchedule(dateSchedule);
     };
@@ -364,6 +454,7 @@ function App() {
 
   useEffect(() => {
     filterSchedule();
+    getHours();
     // dbUserReference && set(ref(db, dbUserReference), "set");
   }, [
     schedule,
@@ -373,22 +464,45 @@ function App() {
     // dbUserReference,
   ]);
 
-  // useEffect(() => {
-  //   onValue(dbUserReference, (snapshot) => {
-  //     if (snapshot.exists()) {
-  //       const usersInfo = snapshot.val();
-  //       if (typeof usersInfo === "object") {
-  //         console.log(usersInfo);
-  //       }
-  //     }
-  //   });
-  // });
+  useEffect(() => {
+    console.log("dateSchedule изменился");
+  }, [dateSchedule]);
+  // console.log(user);
+
+  useEffect(() => {
+    console.log("USER ИЗМЕНИЛСЯ");
+    if (user) {
+      get(ref(db, `users/${auth?.currentUser?.uid}/tarification`))
+        .then((snapshot) => {
+          if (snapshot.exists()) {
+            console.log(snapshot.val());
+            setUserTarification(snapshot.val());
+          } else {
+            if (localStorage.getItem("userTarification")) {
+              set(
+                ref(db, `users/${auth?.currentUser?.uid}/tarification`),
+                JSON.parse(localStorage.getItem("userTarification"))
+              );
+              console.log("localStorage To DB");
+            } else {
+              console.log("No tarification yet");
+            }
+          }
+        })
+        .catch((error) => {
+          console.error(error);
+        });
+    } else {
+      setUserTarification(JSON.parse(localStorage.getItem("userTarification")));
+    }
+  }, [user]);
   return (
     <AppWrapper>
       <Head>
         <a href="https://www.vgtk.by">
-          <ImageGerb src={gerb} alt="" />
+          <ImageLogo src={gerb} alt="" />
         </a>
+        {user ? <ImageLogo src={user.photoURL} /> : <ImageLogo src={inco} />}
         <DateSchedule
           onClick={() => {
             setIsUrlToday((prev) => !prev);
@@ -439,17 +553,17 @@ function App() {
             Редактировать
           </FormButton>
         </AddPanel>
-        <ToggleButton
-          displayName={"Продвинутый режим"}
-          displayNameAlt={"Обычный режим"}
-          handleClick={() => {
-            setAdvancedMode((prev) => !prev);
-          }}
-        ></ToggleButton>
 
         {showTarification && (
           <>
             <CopyTarification />
+            <ToggleButton
+              displayName={"Продвинутый режим"}
+              displayNameAlt={"Обычный режим"}
+              handleClick={() => {
+                setAdvancedMode((prev) => !prev);
+              }}
+            ></ToggleButton>
             Ваша тарификация:
             {userTarification.map((el) => (
               <TarificationWrapper
@@ -521,7 +635,7 @@ function App() {
             ))}
           {isCabinetMode &&
             myCabinetLectures.map((el) => (
-              <LessonWrapper key={el.lessonNumber}>
+              <LessonWrapper key={`${el.lessonName + el.lessonNumber}`}>
                 <CabinetNumber>{el.lessonNumber}</CabinetNumber>
                 <LessonName>{lessonsTime[el.lessonNumber]}</LessonName>
                 <LessonName>{el.lessonName}</LessonName>
@@ -539,10 +653,13 @@ function App() {
         <FormButton onClick={handleCaptureClick}>
           Сохранить как изображение
         </FormButton>
-        <FormButton onClick={handleAddHoursClick}>
-          Добавить в учет часов
-        </FormButton>
+        {user && (
+          <FormButton handleState={loadHours} onClick={handleAddHoursClick}>
+            Добавить в учет часов
+          </FormButton>
+        )}
       </div>
+      <ScheduleTable rawData={fetchedHours}></ScheduleTable>
       <Modal active={modalActive} setActive={setModalActive}>
         <div>Расписание группы {currentGroupModal}</div>
         <div>

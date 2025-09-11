@@ -11,6 +11,8 @@ const firebaseConfig = {
   messagingSenderId: "369828135879",
   appId: "1:369828135879:web:ad18e0c1b525f3cbef0fe2",
   measurementId: "G-CETL1LFGEM",
+  databaseURL:
+    "https://vgtk-parser-default-rtdb.europe-west1.firebasedatabase.app/",
 };
 
 // Initialize Firebase
@@ -19,4 +21,4 @@ const app = initializeApp(firebaseConfig);
 export const db = getDatabase(app);
 export const auth = getAuth();
 export const dbUsersReference = ref(db, "users");
-export const dbHoursReference = ref(db, "hours");
+export const dbHoursReference = ref(db, "hours/");
