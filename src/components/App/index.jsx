@@ -481,7 +481,7 @@ function App() {
             if (localStorage.getItem("userTarification")) {
               set(
                 ref(db, `users/${auth?.currentUser?.uid}/tarification`),
-                JSON.parse(localStorage.getItem("userTarification"))
+                JSON.parse(localStorage.getItem("userTarification") || [])
               );
               console.log("localStorage To DB");
             } else {
@@ -493,7 +493,9 @@ function App() {
           console.error(error);
         });
     } else {
-      setUserTarification(JSON.parse(localStorage.getItem("userTarification")));
+      setUserTarification(
+        JSON.parse(localStorage.getItem("userTarification")) || []
+      );
     }
   }, [user]);
   return (
@@ -684,7 +686,6 @@ function App() {
                     Удалить
                   </FormButton>
                 )}
-                {}
               </LessonWrapper>
             ))}
         </div>
