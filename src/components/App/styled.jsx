@@ -227,3 +227,7 @@ export const SetCabinetNumber = styled.div`
 export const Header = styled.div`
   justify-content: space-between;
 `;
+
+export const ScheduleWrapper = styled.div`
+  margin-bottom: 20px;
+`;

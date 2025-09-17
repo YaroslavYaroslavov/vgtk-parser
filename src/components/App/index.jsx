@@ -37,11 +37,12 @@ import {
   CabinetNumber,
   SetCabinetNumber,
   Head,
+  ScheduleWrapper,
 } from "./styled";
 import { ToggleButton } from "../ToggleButton";
 import { useAuthState } from "react-firebase-hooks/auth";
 import { auth } from "../../firebaseConfig/firebase";
-import { onValue, ref, set, get, child } from "firebase/database";
+import { onValue, ref, set, get, child, update } from "firebase/database";
 import { GoogleAuthProvider, signInWithPopup, signOut } from "firebase/auth";
 import { db } from "../../firebaseConfig/firebase";
 import { ScheduleTable } from "../HoursAccounting";
@@ -57,6 +58,7 @@ function App() {
   const [inputLessonValue, setInputLessonValue] = useState("");
   const [selectGroupValue, setSelectGroupValue] = useState("");
   const [checkboxLect, setCheckboxLect] = useState(false);
+  const [accountingHoursModal, setAccountingHoursModal] = useState(false);
   const [checkboxLab, setCheckboxLab] = useState(false);
   const [loadHours, setLoadHours] = useState(0);
   const [fetchedHours, setFetchedHours] = useState(0);
@@ -104,7 +106,9 @@ function App() {
     if (!user) {
       localStorage.setItem("userCabinet", userCabinet);
     } else {
-      set(ref(db, `users/${auth?.currentUser?.uid}/cabinet`, userCabinet));
+      update(ref(db, `users/${auth?.currentUser?.uid}/userInfo`), {
+        cabinet: userCabinet,
+      });
     }
   };
 
@@ -264,68 +268,46 @@ function App() {
   };
 
   const filterSchedule = useCallback(() => {
-    // console.log(userTarification);
-
     const newSchedule = [];
-
-    userTarification.forEach((item) => {
-      const { groupName, lesson, labs, lecture, altNaming } = item; // lesson здесь - это полное название, которое мы хотим
-
-      const scheduleItem = schedule.find(
-        (
-          scheduleEntry // Переименовал schedule в scheduleEntry, чтобы не было конфликта имен
-        ) =>
-          scheduleEntry.groupName.toLowerCase().trim() ===
-            groupName.toLowerCase().trim() &&
-          scheduleEntry.lessons.some((l) => {
-            const normalizedLessonName = l?.lessonName?.toLowerCase().trim();
-
-            const matchesMainLesson =
-              normalizedLessonName === lesson.toLowerCase().trim();
-
-            const matchesAltNaming =
-              altNaming &&
-              altNaming.some(
-                (altName) =>
-                  normalizedLessonName === altName.toLowerCase().trim()
-              );
-
-            return (
-              (matchesMainLesson || matchesAltNaming) &&
-              ((labs && l.isLab) || (!l.isLab && lecture))
-            );
-          })
-      );
-
-      if (scheduleItem) {
-        // Теперь модифицируем найденные уроки перед добавлением
-        scheduleItem.lessons.forEach((l) => {
-          const normalizedLessonName = l.lessonName.toLowerCase().trim();
-          const matchesMainLesson =
-            normalizedLessonName === lesson.toLowerCase().trim();
-          const matchesAltNaming =
-            altNaming &&
-            altNaming.some(
-              (altName) => normalizedLessonName === altName.toLowerCase().trim()
-            );
-
-          if (matchesMainLesson || matchesAltNaming) {
-            // Создаем копию объекта урока, чтобы не изменять исходные данные в 'schedule'
-            const lessonToAdd = { ...l };
-            // console.log(lessonToAdd);
-            // Заменяем lessonName на полное название из userTarification.lesson
-            lessonToAdd.lessonName = lesson; // item.lesson содержит полное название
-
-            newSchedule.push(lessonToAdd);
-          }
-        });
-      }
-    });
-
-    newSchedule.sort(
-      (a, b) => parseFloat(a.lessonNumber) - parseFloat(b.lessonNumber)
+    let idCounter = 0; // локальный счётчик уникальных id для уроков
+    // Предварительная нормализация входных данных для ускорения сравнения
+    const normalize = (s) => (s ?? "").toLowerCase().trim();
+    // индексируем schedule по группе для быстрого доступа
+    const scheduleByGroup = new Map(
+      schedule.map((s) => [(s.groupName ?? "").toLowerCase().trim(), s])
     );
-
+    userTarification.forEach((item) => {
+      const { groupName, lesson, labs, lecture, altNaming } = item;
+      const groupKey = normalize(groupName);
+      const scheduleItem = scheduleByGroup.get(groupKey);
+      if (!scheduleItem) return;
+      // Ищем подходящие уроки внутри записи группы
+      scheduleItem.lessons.forEach((l) => {
+        const lessonNameNorm = normalize(l?.lessonName);
+        const matchesMainLesson = lessonNameNorm === normalize(lesson);
+        const matchesAltNaming =
+          Array.isArray(altNaming) &&
+          altNaming.some((alt) => lessonNameNorm === normalize(alt));
+        const isLab = !!l.isLab;
+        // Выбор по типу занятия: лабораторная только если указано labs, иначе лекция
+        const typeMatches = (labs && isLab) || (!isLab && lecture);
+        if ((matchesMainLesson || matchesAltNaming) && typeMatches) {
+          // Создаем копию объекта урока и добавляем уникальный id
+          const lessonToAdd = { ...l, lessonName: lesson };
+          lessonToAdd.id = `${++idCounter}`;
+          newSchedule.push(lessonToAdd);
+        }
+      });
+    });
+    // Убеждаемся, что сортировка корректна (если нужен другой порядок, можно поменять)
+    newSchedule.sort((a, b) => {
+      // Дополнительно можно стабилизировать порядок по времени начала, если есть
+      const na = parseFloat(a?.lessonNumber) || 0;
+      const nb = parseFloat(b?.lessonNumber) || 0;
+      if (na !== nb) return na - nb;
+      // fallback: по id
+      return (a?.id || "").localeCompare(b?.id || "");
+    });
     setMySchedule(newSchedule);
   }, [schedule, userTarification]);
 
@@ -497,7 +479,52 @@ function App() {
         JSON.parse(localStorage.getItem("userTarification")) || []
       );
     }
+    if (user) {
+      get(ref(db, `users/${auth?.currentUser?.uid}/userInfo`))
+        .then((snapshot) => {
+          if (snapshot.exists()) {
+            console.log(snapshot.val());
+            setMyCabinet(snapshot.val().cabinet);
+          } else {
+            if (localStorage.getItem("userCabinet")) {
+              set(ref(db, `users/${auth?.currentUser?.uid}/userInfo`), {
+                cabinet: localStorage.getItem("userCabinet"),
+              });
+
+              console.log("localStorage To DB");
+            } else {
+              console.log("No cabinet yet");
+            }
+          }
+        })
+        .catch((error) => {
+          console.error(error);
+        });
+    }
   }, [user]);
+  useEffect(() => {
+    const userId = auth?.currentUser?.uid;
+    if (!userId) return;
+    const hoursRef = ref(db, `users/${userId}/hours`);
+    const unsubscribe = onValue(
+      hoursRef,
+      (snapshot) => {
+        if (snapshot.exists()) {
+          console.log(snapshot.val());
+          setFetchedHours(snapshot.val());
+        } else {
+          console.log("No data available");
+          setFetchedHours(null); // или []
+        }
+      },
+      (error) => {
+        console.error(error);
+      }
+    );
+    // Очистка подписки при размонтировании
+    return () => unsubscribe();
+  }, []);
+  console.log(mySchedule);
   return (
     <AppWrapper>
       <Head>
@@ -618,10 +645,10 @@ function App() {
           </div>
         </HeaderSchedule>
 
-        <div className="scheduleWrapper">
+        <ScheduleWrapper>
           {!isCabinetMode &&
             mySchedule.map((el) => (
-              <LessonWrapper key={el.lessonNumber}>
+              <LessonWrapper key={el.id}>
                 <CabinetNumber>{el.lessonNumber}</CabinetNumber>
                 <LessonName>{lessonsTime[el.lessonNumber]}</LessonName>
                 <LessonName>{el.lessonName}</LessonName>
@@ -651,17 +678,27 @@ function App() {
                 <CabinetNumber>{el.cabinet}</CabinetNumber>
               </LessonWrapper>
             ))}
-        </div>
-        <FormButton onClick={handleCaptureClick}>
-          Сохранить как изображение
-        </FormButton>
-        {user && (
-          <FormButton handleState={loadHours} onClick={handleAddHoursClick}>
-            Добавить в учет часов
+        </ScheduleWrapper>
+        <HeaderSchedule>
+          <FormButton onClick={handleCaptureClick}>
+            Сохранить как изображение
           </FormButton>
-        )}
+          {user && (
+            <>
+              <FormButton handleState={loadHours} onClick={handleAddHoursClick}>
+                Добавить в учет часов
+              </FormButton>
+              <FormButton
+                onClick={() => {
+                  setAccountingHoursModal(true);
+                }}
+              >
+                Открыть учет часов
+              </FormButton>
+            </>
+          )}
+        </HeaderSchedule>
       </div>
-      <ScheduleTable rawData={fetchedHours}></ScheduleTable>
       <Modal active={modalActive} setActive={setModalActive}>
         <div>Расписание группы {currentGroupModal}</div>
         <div>
@@ -713,6 +750,15 @@ function App() {
           currentLessonModal.altNaming.map((el) => {
             return <p key={el}>{el}</p>;
           })}
+      </Modal>
+      <Modal active={accountingHoursModal} setActive={setAccountingHoursModal}>
+        <ScheduleTable
+          rawData={fetchedHours}
+          onRawDataChange={(data) => {
+            setFetchedHours(data);
+          }}
+          userTarification={userTarification}
+        ></ScheduleTable>
       </Modal>
     </AppWrapper>
   );
