@@ -1,8 +1,7 @@
-import React, { useState, useMemo, useEffect } from "react";
+import { useState, useMemo } from "react";
 import { FormButton } from "../App/styled";
-import { set, ref, update, push } from "firebase/database";
+import { set, ref } from "firebase/database";
 import { db, auth } from "../../firebaseConfig/firebase";
-
 import Modal from "../Modal";
 
 // Преобразование Date в строку формата "dd-mm-yyyy"
@@ -17,7 +16,9 @@ function formatDateToDDMMYYYY(date) {
 // Парсит "dd-mm-yyyy" → Date
 function parseDateString(ds) {
   const [dd, mm, yyyy] = ds.split("-").map(Number);
-  return new Date(yyyy, mm - 1, dd);
+  // Используем UTC для New Date, чтобы избежать проблем с часовыми поясами
+  // и всегда получать 1-й день месяца
+  return new Date(Date.UTC(yyyy, mm - 1, dd));
 }
 
 // Генерация уникального ID для занятия в рамках дня
@@ -25,6 +26,16 @@ function generateLessonId(items) {
   if (!items || items.length === 0) return 1;
   const maxId = items.reduce((max, item) => Math.max(max, item.id || 0), 0);
   return maxId + 1;
+}
+
+// Определить тип группы (ПТО или ССО)
+function isPTOGroup(groupName = "") {
+  return typeof groupName === "string" && groupName.trim().startsWith("П");
+}
+
+// Отсортировать ключи дат "dd-mm-yyyy"
+function sortDateKeysAsc(dateKeys) {
+  return [...dateKeys].sort((a, b) => parseDateString(a) - parseDateString(b));
 }
 
 export const ScheduleTable = ({
@@ -51,29 +62,34 @@ export const ScheduleTable = ({
   const [modalItems, setModalItems] = useState([]);
   const [newItem, setNewItem] = useState({ isLab: false, cabinet: "" });
 
+  // >>> NEW: State для отслеживания наведения мыши
+  const [hoveredColumn, setHoveredColumn] = useState(null); // ds hovered column
+  const [hoveredRow, setHoveredRow] = useState(null); // lessonName|||groupName hovered row
+
   // useMemo для пересборки таблицы
   const { datesInMonth, rows, totalsByDate, grandTotal } = useMemo(() => {
-    // 1) даты
-    const allRawDataDates = Object.keys(rawData).map((ds) => ({
-      ds,
-      date: parseDateString(ds),
-    }));
-    const datesInMonth = allRawDataDates
+    // 1) Все даты во всём rawData, отсортированные
+    const allDateKeys = Object.keys(rawData || {});
+    const allDatesSorted = sortDateKeysAsc(allDateKeys);
+
+    // 2) Даты только текущего месяца для отображения колонок
+    const datesInMonth = allDatesSorted
+      .map((ds) => ({ ds, date: parseDateString(ds) }))
       .filter(
         ({ date }) =>
           date.getFullYear() === currentMonth.getFullYear() &&
           date.getMonth() === currentMonth.getMonth()
       )
-      .sort((a, b) => a.date - b.date)
       .map((o) => o.ds);
 
-    // 2) ключи предметов/групп: теперь берем из userTarification
+    // 3) Ключи предметов/групп: теперь берем из userTarification + из rawData
     const groupKeys = new Set();
-    userTarification.forEach((item) => {
-      groupKeys.add(`${item.lesson}|||${item.groupName}`); // Используем item.lesson и item.groupName из userTarification
+    (userTarification || []).forEach((item) => {
+      if (!item) return;
+      groupKeys.add(`${item.lesson}|||${item.groupName}`);
     });
-    // Дополнительно можно добавить ключи из rawData, чтобы учесть те, которых, возможно, нет в userTarification
-    Object.values(rawData)
+
+    Object.values(rawData || {})
       .flat()
       .forEach((item) => {
         if (item && item.lessonName && item.groupName) {
@@ -81,29 +97,86 @@ export const ScheduleTable = ({
         }
       });
 
-    // 3) строим строки: для каждой даты храним { labs, lectures, total }
+    // 4) Строим строки: для каждой даты храним { labs, lectures, total, indices }
     const rows = Array.from(groupKeys).map((key) => {
       const [lessonName, groupName] = key.split("|||");
-      const cells = {};
-      let sum = 0;
+      const isPTO = isPTOGroup(groupName);
 
-      datesInMonth.forEach((ds) => {
-        // Убедимся, что rawData[ds] - массив. Если нет данных за этот день, itemsForDate будет пустым.
+      // Собираем все часы для данной комбинации lessonName + groupName,
+      // отсортированные по дате и затем по id внутри дня (для стабильности)
+      const allHoursForGroup = [];
+      allDatesSorted.forEach((ds) => {
         const itemsForDate = Array.isArray(rawData[ds]) ? rawData[ds] : [];
-        const items = itemsForDate.filter(
-          (it) => it.lessonName === lessonName && it.groupName === groupName
-        );
-        const labsCount = items.filter((it) => it.isLab).length;
-        const lecturesCount = items.filter((it) => !it.isLab).length;
-        const total = labsCount + lecturesCount;
-        cells[ds] = { labs: labsCount, lectures: lecturesCount, total };
-        sum += total;
+        itemsForDate
+          .filter(
+            (it) => it.lessonName === lessonName && it.groupName === groupName
+          )
+          .sort((a, b) => (a.id || 0) - (b.id || 0)) // Сортируем по id, чтобы индексация была стабильной
+          .forEach((item) => allHoursForGroup.push({ item, ds }));
       });
 
-      return { lessonName, groupName, cells, sum };
+      // Присваиваем индексы занятиям
+      const hourToLessonIndexMap = new Map(); // Карта { item.id в день + ds -> index занятия }
+      let currentLessonIndex = 0;
+      let ssoHourCountForCurrentLesson = 0; // Для ССО: сколько часов уже в текущем занятии
+
+      allHoursForGroup.forEach(({ item, ds }, i) => {
+        if (isPTO) {
+          currentLessonIndex += 1;
+          hourToLessonIndexMap.set(`${ds}-${item.id}`, currentLessonIndex);
+        } else {
+          // ССО
+          ssoHourCountForCurrentLesson += 1;
+          if (ssoHourCountForCurrentLesson === 1) {
+            // Первый час нового занятия или нечетный час
+            currentLessonIndex += 1;
+          }
+          hourToLessonIndexMap.set(`${ds}-${item.id}`, currentLessonIndex);
+
+          // Если набрали 2 часа, сбрасываем счетчик для следующего занятия
+          if (ssoHourCountForCurrentLesson === 2) {
+            ssoHourCountForCurrentLesson = 0;
+          }
+        }
+      });
+
+      // Теперь формируем `cells` только для дат текущего месяца
+      const cells = {};
+      let sumLessons = currentLessonIndex; // Общее количество занятий по этой строке
+
+      datesInMonth.forEach((ds) => {
+        const itemsForDate = Array.isArray(rawData[ds]) ? rawData[ds] : [];
+        const filteredItemsForDate = itemsForDate.filter(
+          (it) => it.lessonName === lessonName && it.groupName === groupName
+        );
+
+        const labsCount = filteredItemsForDate.filter((it) => it.isLab).length;
+        const lecturesCount = filteredItemsForDate.filter(
+          (it) => !it.isLab
+        ).length;
+        const total = labsCount + lecturesCount;
+
+        // Собираем уникальные индексы занятий для этой даты
+        const indicesForDay = new Set();
+        filteredItemsForDate.forEach((item) => {
+          const index = hourToLessonIndexMap.get(`${ds}-${item.id}`);
+          if (index) {
+            indicesForDay.add(index);
+          }
+        });
+
+        cells[ds] = {
+          labs: labsCount,
+          lectures: lecturesCount,
+          total,
+          indices: Array.from(indicesForDay).sort((a, b) => a - b),
+        };
+      });
+
+      return { lessonName, groupName, cells, sum: sumLessons }; // sum теперь — это общее количество занятий
     });
 
-    // 4) итоги
+    // 5) Итоги по дням текущего месяца (суммарное кол-во часов)
     const totalsByDate = {};
     let grandTotal = 0;
     datesInMonth.forEach((ds) => {
@@ -116,7 +189,7 @@ export const ScheduleTable = ({
     });
 
     return { datesInMonth, rows, totalsByDate, grandTotal };
-  }, [rawData, currentMonth, userTarification]); // userTarification добавлен в зависимости
+  }, [rawData, currentMonth, userTarification]);
 
   // переход по месяцам
   const prevMonth = () =>
@@ -144,6 +217,25 @@ export const ScheduleTable = ({
   };
   const stickyHeaderStyle = { ...stickyStyle, zIndex: 3, textAlign: "left" };
 
+  // >>> NEW: Стили для подсветки при наведении
+  const highlightColor = "rgba(199, 18, 18, 0.301)"; // Очень легкая полупрозрачная подсветка
+
+  // Функция для создания стиля фона, который не перекрывает getBg, но добавляет подсветку
+  const getCombinedBgStyle = (cellData, ds, rowKey) => {
+    const originalBg = getBg(cellData);
+    const isCellHovered = hoveredColumn === ds || hoveredRow === rowKey;
+
+    if (isCellHovered) {
+      // Если ячейка hovered, смешиваем оригинальный фон с highlightColor
+      // Это работает для solid цветов и градиентов, делая их чуть светлее/темнее
+      return {
+        background: originalBg,
+        boxShadow: `inset 0 0 0 1000px ${highlightColor}`, // накладываем полупрозрачный слой
+      };
+    }
+    return { background: originalBg };
+  };
+
   // открытие модалки
   const openModal = (ds, lessonName, groupName, sum) => {
     const items = Array.isArray(rawData[ds])
@@ -151,16 +243,13 @@ export const ScheduleTable = ({
           (it) => it.lessonName === lessonName && it.groupName === groupName
         )
       : [];
-
     setModalInfo({ date: ds, lessonName, groupName, total: sum });
     setModalItems(items);
     setNewItem({ isLab: false, cabinet: "" });
     setModalActive(true);
   };
 
-  // --- Firebase операции ---
-
-  // Функция для добавления урока
+  // --- Firebase операции (без изменений) ---
   const handleCreateLesson = async (lessonData) => {
     const userId = auth?.currentUser?.uid;
     if (!userId) {
@@ -168,47 +257,35 @@ export const ScheduleTable = ({
       alert("Пожалуйста, авторизуйтесь.");
       return;
     }
-
     const { date, lessonName, groupName, isLab, cabinet } = lessonData;
-
-    // Генерируем уникальный ID для урока в рамках дня
     const currentDayLessons = rawData[date] || [];
     const newId = generateLessonId(currentDayLessons);
-
     const newLesson = {
-      id: newId, // используем сгенерированный ID
+      id: newId,
       lessonName,
       groupName,
       isLab,
       cabinet,
     };
-
     const newDayData = [...currentDayLessons, newLesson];
-
-    // Обновляем родительский rawData через пропс
     onRawDataChange((prev) => ({
       ...prev,
       [date]: newDayData,
     }));
-
-    // Отправляем весь массив занятий на эту дату в Firebase
     const path = `users/${userId}/hours/${date}`;
     try {
       await set(ref(db, path), newDayData);
       console.log(`Урок ${newLesson.id} добавлен на ${date} и отправлен в DB.`);
-      // Обновляем modalItems, чтобы модалка отображала новый урок
       if (modalActive && modalInfo.date === date) {
         setModalItems((prev) => [...prev, newLesson]);
       }
     } catch (error) {
       console.error("Ошибка при добавлении урока в Firebase:", error);
       alert("Ошибка при добавлении урока.");
-      // Откатываем локальное изменение, если ошибка (через onRawDataChange)
       onRawDataChange((prev) => ({ ...prev, [date]: currentDayLessons }));
     }
   };
 
-  // Функция для обновления урока
   const handleUpdateLesson = async (lessonId, updates) => {
     const userId = auth?.currentUser?.uid;
     if (!userId) {
@@ -216,27 +293,20 @@ export const ScheduleTable = ({
       alert("Пожалуйста, авторизуйтесь.");
       return;
     }
-
-    const { date } = modalInfo; // Берем дату из открытой модалки
+    const { date } = modalInfo;
     if (!date || !Array.isArray(rawData[date])) return;
-
     const currentDayLessons = rawData[date];
     const updatedDayLessons = currentDayLessons.map((lesson) =>
       lesson.id === lessonId ? { ...lesson, ...updates } : lesson
     );
-
-    // Обновляем родительский rawData через пропс
     onRawDataChange((prev) => ({
       ...prev,
       [date]: updatedDayLessons,
     }));
-
-    // Отправляем весь массив занятий на эту дату в Firebase
     const path = `users/${userId}/hours/${date}`;
     try {
       await set(ref(db, path), updatedDayLessons);
       console.log(`Урок ${lessonId} на ${date} обновлен в DB.`);
-      // Обновляем modalItems
       setModalItems((prev) =>
         prev.map((item) =>
           item.id === lessonId ? { ...item, ...updates } : item
@@ -245,12 +315,10 @@ export const ScheduleTable = ({
     } catch (error) {
       console.error("Ошибка при обновлении урока в Firebase:", error);
       alert("Ошибка при обновлении урока.");
-      // Откатываем локальное изменение
       onRawDataChange((prev) => ({ ...prev, [date]: currentDayLessons }));
     }
   };
 
-  // Функция для удаления урока
   const handleDeleteLesson = async (lessonId) => {
     const userId = auth?.currentUser?.uid;
     if (!userId) {
@@ -258,52 +326,41 @@ export const ScheduleTable = ({
       alert("Пожалуйста, авторизуйтесь.");
       return;
     }
-
-    const { date } = modalInfo; // Берем дату из открытой модалки
+    const { date } = modalInfo;
     if (!date || !Array.isArray(rawData[date])) return;
-
     const currentDayLessons = rawData[date];
     const filteredDayLessons = currentDayLessons.filter(
       (lesson) => lesson.id !== lessonId
     );
-
-    // Обновляем родительский rawData через пропс
     onRawDataChange((prev) => ({
       ...prev,
       [date]: filteredDayLessons,
     }));
-
-    // Отправляем обновленный (без удаленного урока) массив занятий на эту дату в Firebase
     const path = `users/${userId}/hours/${date}`;
     try {
-      // Если уроков не осталось, можно удалить весь узел даты из DB
       if (filteredDayLessons.length === 0) {
         await set(ref(db, path), null); // Удалит узел
       } else {
         await set(ref(db, path), filteredDayLessons);
       }
       console.log(`Урок ${lessonId} на ${date} удален из DB.`);
-      // Обновляем modalItems
       setModalItems((prev) => prev.filter((item) => item.id !== lessonId));
-      // Если после удаления уроков не осталось, можно закрыть модалку
       if (filteredDayLessons.length === 0) {
         setModalActive(false);
       }
     } catch (error) {
       console.error("Ошибка при удалении урока из Firebase:", error);
       alert("Ошибка при удалении урока.");
-      // Откатываем локальное изменение
       onRawDataChange((prev) => ({ ...prev, [date]: currentDayLessons }));
     }
   };
 
-  // хендлеры модалки, теперь вызывающие Firebase-функции
+  // хендлеры модалки
   const handleItemChange = (idx, field, val) => {
     const copy = [...modalItems];
     copy[idx] = { ...copy[idx], [field]: val };
     setModalItems(copy);
   };
-
   const handleSaveItem = (item) =>
     handleUpdateLesson(item.id, { isLab: item.isLab, cabinet: item.cabinet });
   const handleDeleteItem = (item) => handleDeleteLesson(item.id);
@@ -324,22 +381,16 @@ export const ScheduleTable = ({
       alert("Пожалуйста, выберите дату.");
       return;
     }
-
-    // Проверяем, есть ли уже эта дата локально
     if (Object.keys(rawData).includes(selectDate)) {
       alert("Дата уже существует в таблице.");
       return;
     }
-
-    // Добавляем пустой массив для этой даты в локальный rawData через onRawDataChange
     onRawDataChange((prev) => ({
       ...prev,
       [selectDate]: [], // Инициализируем пустым массивом для новой даты
     }));
-
     setAddNewDayModal(false); // Закрываем модалку после добавления даты
     console.log(`Дата ${selectDate} добавлена локально.`);
-    // На сервер отправится, когда в эту дату будет добавлен первый урок через handleCreateLesson.
   };
 
   return (
@@ -380,61 +431,188 @@ export const ScheduleTable = ({
         >
           <thead>
             <tr>
-              <th style={stickyHeaderStyle}>Предмет / Группа</th>
+              <th
+                style={{
+                  ...stickyHeaderStyle,
+                  background:
+                    hoveredRow === "header-row-key"
+                      ? `#efefef ${highlightColor}`
+                      : "#efefef", // Подсветка для sticky-заголовка
+                }}
+                onMouseEnter={() => setHoveredRow("header-row-key")}
+                onMouseLeave={() => setHoveredRow(null)}
+              >
+                Предмет / Группа
+              </th>
               {datesInMonth.map((ds) => (
-                <th key={ds} style={{ width: 55 }}>
+                <th
+                  key={ds}
+                  style={{
+                    width: 55,
+                    background:
+                      hoveredColumn === ds ? highlightColor : "transparent", // подсветка столбца
+                  }}
+                  onMouseEnter={() => setHoveredColumn(ds)}
+                  onMouseLeave={() => setHoveredColumn(null)}
+                >
                   {ds}
                 </th>
               ))}
-              <th>Итого</th>
+              <th
+                style={{
+                  background:
+                    hoveredRow === "header-row-key"
+                      ? highlightColor
+                      : "transparent", // Подсветка "Итого"
+                }}
+                onMouseEnter={() => setHoveredRow("header-row-key")}
+                onMouseLeave={() => setHoveredRow(null)}
+              >
+                Итого (занятий)
+              </th>
             </tr>
           </thead>
           <tbody>
-            {rows.map(({ lessonName, groupName, cells, sum }) => (
-              <tr key={`${lessonName}|||${groupName}`}>
-                <td style={stickyStyle}>
-                  {lessonName}
-                  <br />
-                  <small>({groupName})</small>
-                </td>
-                {datesInMonth.map((ds) => {
-                  const { labs, lectures, total } = cells[ds];
-                  return (
-                    <td
-                      key={ds}
-                      onClick={() =>
-                        openModal(ds, lessonName, groupName, totalsByDate[ds])
-                      }
-                      style={{
-                        cursor: "pointer",
-                        textAlign: "center",
-                        background: getBg({ labs, lectures }),
-                      }}
-                    >
-                      {total || ""}
-                    </td>
-                  );
-                })}
-                <td style={{ textAlign: "center", fontWeight: "bold" }}>
-                  {sum}
-                </td>
-              </tr>
-            ))}
+            {rows.map(({ lessonName, groupName, cells, sum }) => {
+              const rowKey = `${lessonName}|||${groupName}`;
+              return (
+                <tr
+                  key={rowKey}
+                  onMouseEnter={() => setHoveredRow(rowKey)}
+                  onMouseLeave={() => setHoveredRow(null)}
+                >
+                  <td
+                    style={{
+                      ...stickyStyle,
+                      background:
+                        hoveredRow === rowKey
+                          ? `#efefef ${highlightColor}`
+                          : "#efefef", // Подсветка для sticky-ячейки строки
+                    }}
+                  >
+                    {lessonName}
+                    <br />
+                    <small>({groupName})</small>
+                  </td>
+                  {datesInMonth.map((ds) => {
+                    const { labs, lectures, total, indices } = cells[ds] || {
+                      labs: 0,
+                      lectures: 0,
+                      total: 0,
+                      indices: [],
+                    };
+                    return (
+                      <td
+                        key={ds}
+                        onClick={() =>
+                          openModal(
+                            ds,
+                            lessonName,
+                            groupName,
+                            totalsByDate[ds] // передаем общую сумму часов за день в модалку
+                          )
+                        }
+                        style={{
+                          cursor: "pointer",
+                          textAlign: "left",
+                          ...getCombinedBgStyle({ labs, lectures }, ds, rowKey), // Используем объединенный стиль фона
+                          position: "relative",
+                          padding: "4px",
+                          fontSize: "12px",
+                        }}
+                        onMouseEnter={() => {
+                          setHoveredColumn(ds);
+                          setHoveredRow(rowKey);
+                        }}
+                        onMouseLeave={() => {
+                          setHoveredColumn(null);
+                          setHoveredRow(null);
+                        }}
+                      >
+                        {/* Кол-во часов по-прежнему крупнее */}
+                        <div style={{ fontWeight: "bold" }}>{total || ""}</div>
+                        {/* Индексы занятий — справа-снизу меньшим шрифтом */}
+                        {indices && indices.length > 0 && (
+                          <div
+                            style={{
+                              position: "absolute",
+                              right: 2,
+                              bottom: 2,
+                              fontSize: "10px",
+                              opacity: 0.8,
+                              textAlign: "right",
+                            }}
+                          >
+                            {indices.join(",")}
+                          </div>
+                        )}
+                      </td>
+                    );
+                  })}
+                  <td
+                    style={{
+                      textAlign: "center",
+                      fontWeight: "bold",
+                      background:
+                        hoveredRow === rowKey ? highlightColor : "transparent", // Подсветка для итогов строки
+                    }}
+                  >
+                    {sum}
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
           <tfoot>
-            <tr>
-              <td style={{ ...stickyStyle, fontWeight: "bold" }}>
-                Всего по дням:
+            <tr
+              onMouseEnter={() => setHoveredRow("footer-row-key")}
+              onMouseLeave={() => setHoveredRow(null)}
+            >
+              <td
+                style={{
+                  ...stickyStyle,
+                  fontWeight: "bold",
+                  background:
+                    hoveredRow === "footer-row-key"
+                      ? `#efefef ${highlightColor}`
+                      : "#efefef", // Подсветка для sticky-ячейки футера
+                }}
+              >
+                Всего часов по дням:
               </td>
               {datesInMonth.map((ds) => (
                 <td
                   key={ds}
-                  style={{ textAlign: "center", fontWeight: "bold" }}
+                  style={{
+                    textAlign: "center",
+                    fontWeight: "bold",
+                    background:
+                      hoveredColumn === ds || hoveredRow === "footer-row-key"
+                        ? highlightColor
+                        : "transparent",
+                  }}
+                  onMouseEnter={() => {
+                    setHoveredColumn(ds);
+                    setHoveredRow("footer-row-key");
+                  }}
+                  onMouseLeave={() => {
+                    setHoveredColumn(null);
+                    setHoveredRow(null);
+                  }}
                 >
                   {totalsByDate[ds]}
                 </td>
               ))}
-              <td style={{ textAlign: "center", fontWeight: "bold" }}>
+              <td
+                style={{
+                  textAlign: "center",
+                  fontWeight: "bold",
+                  background:
+                    hoveredRow === "footer-row-key"
+                      ? highlightColor
+                      : "transparent",
+                }}
+              >
                 {grandTotal}
               </td>
             </tr>

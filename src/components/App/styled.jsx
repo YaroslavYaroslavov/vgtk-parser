@@ -130,9 +130,11 @@ export const FormButtonDelete = styled.button`
   border-radius: 5px;
   background: rgba(56, 50, 50, 1);
   outline-width: 0;
+  height: 37px;
+  width: 150px;
   /* margin */
-  padding-right: 10px;
-  padding-left: 10px;
+  /* padding-right: 10px; */
+  /* padding-left: 10px; */
   color: white;
   &:hover {
     background: #706464;
