@@ -5,9 +5,10 @@
   font-family: "Inter", sans-serif;
   font-optical-sizing: auto;
   font-style: normal;
+  box-sizing: border-box;
 }
 
-html[data-theme='dark'] {
+html[data-theme="dark"] {
   --text-color: rgba(217, 217, 217, 1);
   --background-color: linear-gradient(
     90deg,
@@ -17,15 +18,16 @@ html[data-theme='dark'] {
   --input-border-color: rgba(41, 37, 37, 1);
   --input-background-color: rgba(56, 50, 50, 1);
   --hover-color: #706464;
-
 }
-html[data-theme='light'] {
+
+html[data-theme="light"] {
   --text-color: rgba(0, 0, 0, 1);
   --background-color: #efefef;
   --input-border-color: green;
   --input-background-color: #efefef;
   --hover-color: rgba(0, 0, 0, 0.156);
 }
+
 html,
 body {
   margin: 0;
@@ -53,10 +55,10 @@ body {
     rgba(16, 36, 24, 1),
     rgba(0, 0, 0, 1)
   );
-  --font-SemiBold: 'Poppins-SemiBold';
-  --font-Bold: 'Poppins-Bold';
-  --font-Regular: 'Poppins-Regular';
-  --font-Light: 'Poppins-Light';
+  --font-SemiBold: "Poppins-SemiBold";
+  --font-Bold: "Poppins-Bold";
+  --font-Regular: "Poppins-Regular";
+  --font-Light: "Poppins-Light";
 
   --card-title-font-size: 35px;
   --card-subtitle-font-size: 32px;
@@ -65,7 +67,8 @@ body {
 body {
   padding: 20px;
   color: var(--text-color);
-  background: var(--background-color)
+  background: var(--background-color);
+  min-height: 100vh;
 }
 
 main {
@@ -74,16 +77,39 @@ main {
   justify-content: center;
   align-items: center;
   gap: 55px;
+  flex-wrap: wrap;
+}
+
+@media (max-width: 768px) {
+  main {
+    gap: 30px;
+    padding: 15px 0;
+    flex-direction: column;
+  }
+
+  body {
+    padding: 15px;
+  }
 }
 
 footer {
   text-align: left;
   display: flex;
   justify-content: center;
+  padding: 20px 0;
+}
+
+@media (max-width: 768px) {
+  footer {
+    padding: 15px 0;
+    text-align: center;
+  }
 }
 
 textarea {
   resize: none;
+  width: 100%;
+  max-width: 100%;
 }
 
 .action {
@@ -94,6 +120,8 @@ textarea {
   border-radius: 5px;
   background: rgba(56, 50, 50, 1);
   color: white;
+  cursor: pointer;
+  transition: all 0.3s ease;
 }
 
 .action:hover {
@@ -101,11 +129,30 @@ textarea {
   color: black;
 }
 
+@media (max-width: 768px) {
+  .action {
+    width: 100%;
+    margin-right: 0;
+    margin-bottom: 10px;
+    padding: 12px;
+    font-size: 16px;
+  }
+}
+
 .date {
   display: flex;
   justify-content: center;
   font-size: 32px;
   color: white;
+  text-align: center;
+  padding: 10px;
+}
+
+@media (max-width: 768px) {
+  .date {
+    font-size: 24px;
+    padding: 8px;
+  }
 }
 
 .schedule {
@@ -114,24 +161,56 @@ textarea {
   padding-bottom: 10px;
   margin-bottom: 10px;
   border-bottom: 1px solid lightcoral;
-  /* justify-content: center; */
-  /* padding: 5px 0 0; */
+  flex-wrap: wrap;
+}
+
+@media (max-width: 768px) {
+  .schedule {
+    gap: 10px;
+    padding: 15px 0;
+    flex-direction: column;
+    align-items: flex-start;
+  }
 }
 
 .lesson {
   width: 50px;
 }
+
 .time {
   width: 120px;
 }
+
 .subject {
   width: 250px;
 }
+
 .cabinet {
   width: 100px;
 }
+
 .group {
   width: 100px;
+}
+
+@media (max-width: 768px) {
+  .lesson,
+  .time,
+  .subject,
+  .cabinet,
+  .group {
+    width: 100%;
+    padding: 5px 0;
+    border-bottom: 1px dashed rgba(255, 255, 255, 0.1);
+  }
+
+  .lesson:last-child,
+  .time:last-child,
+  .subject:last-child,
+  .cabinet:last-child,
+  .group:last-child {
+    border-bottom: none;
+  }
 }
 
 .check {
@@ -139,37 +218,62 @@ textarea {
   height: 20px;
 }
 
+@media (max-width: 768px) {
+  .check {
+    width: 24px;
+    height: 24px;
+    margin: 5px 0;
+  }
+}
+
 .switch-btn {
   display: inline-block;
-  width: 52px; /* ширина */
-  height: 28px; /* высота */
-  border-radius: 19px; /* радиус скругления */
-  background: #bfbfbf; /* цвет фона */
+  width: 52px;
+  height: 28px;
+  border-radius: 19px;
+  background: #bfbfbf;
   z-index: 0;
   margin: 0;
   padding: 0;
   border: none;
   cursor: pointer;
   position: relative;
-  transition-duration: 300ms; /* анимация */
+  transition-duration: 300ms;
+  -webkit-tap-highlight-color: transparent;
 }
+
 .switch-btn::after {
   content: "";
-  height: 22px; /* высота кнопки */
-  width: 22px; /* ширина кнопки */
+  height: 22px;
+  width: 22px;
   border-radius: 17px;
-  background: #fff; /* цвет кнопки */
-  top: 3px; /* положение кнопки по вертикали относительно основы */
-  left: 3px; /* положение кнопки по горизонтали относительно основы */
-  transition-duration: 300ms; /* анимация */
+  background: #fff;
+  top: 3px;
+  left: 3px;
+  transition-duration: 300ms;
   position: absolute;
   z-index: 1;
 }
+
 .switch-on {
   background: #118c4e;
 }
+
 .switch-on::after {
   left: 50%;
+}
+
+@media (max-width: 768px) {
+  .switch-btn {
+    width: 60px;
+    height: 32px;
+  }
+
+  .switch-btn::after {
+    height: 26px;
+    width: 26px;
+    top: 3px;
+  }
 }
 
 .switchScheduleModeContainer {
@@ -177,15 +281,31 @@ textarea {
   justify-content: space-between;
   align-items: center;
   padding-bottom: 20px;
+  flex-wrap: wrap;
+}
+
+@media (max-width: 768px) {
+  .switchScheduleModeContainer {
+    flex-direction: column;
+    gap: 15px;
+    align-items: flex-start;
+    padding-bottom: 15px;
+  }
 }
 
 .switchScheduleMode {
   display: flex;
   align-items: center;
   gap: 20px;
-  /* justify-content: ; */
-  /* align-items: ; */
-  /* justify-content: space-between; */
+}
+
+@media (max-width: 768px) {
+  .switchScheduleMode {
+    width: 100%;
+    justify-content: space-between;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
 }
 
 .myCabinetInput {
@@ -197,6 +317,14 @@ textarea {
   margin: 0;
   padding: 0;
   height: 20px;
+  width: 100%;
+}
+
+@media (max-width: 768px) {
+  .myCabinetInput {
+    height: 24px;
+    font-size: 16px;
+  }
 }
 
 .inputWrapper {
@@ -209,26 +337,110 @@ textarea {
   border-radius: 5px;
   background: rgba(56, 50, 50, 1);
   outline-width: 0;
-  /* margin */
   padding-right: 10px;
   padding-left: 10px;
+  width: fit-content;
 }
+
+@media (max-width: 768px) {
+  .inputWrapper {
+    height: 44px;
+    width: 100%;
+    max-width: 300px;
+    padding: 0 15px;
+  }
+}
+
 .myCabinetInput:focus {
   outline-width: 0;
 }
-.saveCabinet {
-  /* margin: 0; */
-  /* padding: 0; */
 
+.saveCabinet {
   background: rgba(56, 50, 50, 1);
-  /* border-left: 0; */
   width: 20px;
   height: 20px;
   display: flex;
   justify-content: center;
   align-items: center;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  border: none;
+  border-radius: 3px;
 }
+
 .saveCabinet:hover {
   background: white;
   color: black;
+}
+
+@media (max-width: 768px) {
+  .saveCabinet {
+    width: 30px;
+    height: 30px;
+    font-size: 16px;
+  }
+}
+
+/* Дополнительные адаптивные стили для очень маленьких экранов */
+@media (max-width: 480px) {
+  body {
+    padding: 10px;
+  }
+
+  .date {
+    font-size: 20px;
+  }
+
+  .switchScheduleMode {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .inputWrapper {
+    max-width: 100%;
+  }
+
+  main {
+    gap: 20px;
+  }
+}
+
+/* Улучшение touch-областей для мобильных устройств */
+@media (max-width: 768px) {
+  button,
+  .action,
+  .switch-btn,
+  .saveCabinet,
+  [role="button"] {
+    min-height: 44px;
+    min-width: 44px;
+  }
+
+  input,
+  select,
+  textarea {
+    font-size: 16px; /* Предотвращает масштабирование при фокусе на iOS */
+  }
+}
+
+/* Горизонтальная ориентация на мобильных устройствах */
+@media (max-width: 896px) and (orientation: landscape) {
+  main {
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+
+  .schedule {
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+
+  .lesson,
+  .time,
+  .subject,
+  .cabinet,
+  .group {
+    width: auto;
+    border-bottom: none;
+  }
 }

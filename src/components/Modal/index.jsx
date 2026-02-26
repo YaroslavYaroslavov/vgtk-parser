@@ -1,9 +1,8 @@
-import './styled.css';
+import "./styled.css";
 
-import PropTypes from 'prop-types';
-import React from 'react';
-import ReactDOM from 'react-dom';
-import usePortal from '../../hooks/use-portal';
+import PropTypes from "prop-types";
+import ReactDOM from "react-dom";
+import usePortal from "../../hooks/use-portal";
 
 const Modal = ({ active, setActive, children }) => {
   const handleCloseModal = () => {
@@ -14,9 +13,12 @@ const Modal = ({ active, setActive, children }) => {
   return (
     portal &&
     ReactDOM.createPortal(
-      <div className={active ? 'modal active' : 'modal'} onClick={handleCloseModal}>
+      <div
+        className={active ? "modal active" : "modal"}
+        onClick={handleCloseModal}
+      >
         <div
-          className={active ? 'modal_content active' : 'modal_content'}
+          className={active ? "modal_content active" : "modal_content"}
           onClick={(e) => e.stopPropagation()}
         >
           {children}
