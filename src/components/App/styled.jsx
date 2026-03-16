@@ -359,3 +359,40 @@ export const ScheduleWrapper = styled.div`
     margin-bottom: 15px;
   }
 `;
+// Добавьте эти стили в ваш существующий файл styled.js
+
+export const ViewToggleWrapper = styled.div`
+  display: flex;
+  gap: 10px;
+  margin: 10px;
+  background-color: ${({ theme }) =>
+    theme === "dark" ? "#404040" : "#f0f0f0"};
+  padding: 5px;
+  border-radius: 30px;
+  width: fit-content;
+`;
+
+export const ViewToggleButton = styled.button`
+  padding: 8px 16px;
+  border: none;
+  border-radius: 25px;
+  background-color: ${({ active, theme }) =>
+    active ? (theme === "dark" ? "#4a90e2" : "#1976d2") : "transparent"};
+  color: ${({ active, theme }) =>
+    active ? "white" : theme === "dark" ? "#fff" : "#333"};
+  font-size: 14px;
+  font-weight: ${({ active }) => (active ? "600" : "400")};
+  cursor: pointer;
+  transition: all 0.2s ease;
+
+  &:hover {
+    background-color: ${({ active, theme }) =>
+      active
+        ? theme === "dark"
+          ? "#357abd"
+          : "#1565c0"
+        : theme === "dark"
+          ? "#555"
+          : "#e0e0e0"};
+  }
+`;
