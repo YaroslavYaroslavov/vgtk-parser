@@ -2,6 +2,7 @@ import { allGroups } from "../../consts/allGroups";
 import { SelectStyled } from "./styled";
 
 export const CustomSelect = ({ handleSelectChange, selectValue }) => {
+  // console.log(allGroups);
   return (
     <SelectStyled
       type="text"

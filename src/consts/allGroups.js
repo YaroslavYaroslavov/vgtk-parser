@@ -1,90 +1,125 @@
-export const allGroups = [
-  "А-11",
-  "А-21",
-  "А-31",
-  "А-41",
-  "Д-11",
-  "Д-31",
-  "ЖБИ-11",
-  "ЖБИ-21",
-  "С-11",
-  "С-21",
-  "С-31",
-  "С-41",
-  "С-42",
-  "ТС-11",
+// parseGroups.js
 
-  "Б-31",
-  "ВР-11",
-  "ВР-21",
-  "ВР-31",
-  "ВС-21",
-  "ВС-31",
-  "ВС-41",
-  "ИТ-11",
-  "ИТ-21",
-  "ИТ-31",
-  "М-11",
-  "М-21",
-  "Э-11",
-  "Э-21",
-  "Э-32",
-  "Э-42",
-  "ТЭ-11",
+// Функция для парсинга групп с сайта
+export const fetchAllGroups = async () => {
+  try {
+    const response = await fetch(
+      "https://www.vgtk.by/schedule/lessons/day-today.php",
+    );
+    const data = await response.text();
 
-  "АС-22",
-  "АС-32",
-  "АС-42",
-  "ОС-11",
-  "ОС-21",
-  "ОС-32",
-  "ОС-42",
-  "ЭМ-11",
-  "ЭМ-21",
-  "ЭМ-32",
-  "ЭМ-42",
+    const tempElement = document.createElement("div");
+    tempElement.innerHTML = data;
+    const tableElement = tempElement.querySelector("table");
 
-  "ПКО-11",
-  "ПКО-21",
-  "ПКО-31",
-  "ПКЭ-39",
-  "ПСМ-13",
-  "ПСМ-23",
-  "ПСМ-33",
-  "ПФЭ-16",
-  "ПФЭ-26",
-  "ПФЭ-36",
+    // Функция для обработки rowspan (если нужно)
+    const splitRowspan2TD = (tableElement) => {
+      for (let i = 0; i < tableElement.rows.length; i++) {
+        let row = tableElement.rows[i];
+        for (let j = 0; j < row.cells.length; j++) {
+          let cell = row.cells[j];
+          let rowspan = parseInt(cell.getAttribute("rowspan"));
 
-  "ПОО-14",
-  "ПОО-24",
-  "ПОО-34",
-  "ПТЭ-111",
-  "ПМЭ-18",
-  "ПМЭ-28",
-  "ПМЭ-38",
+          if (cell.hasAttribute("rowspan") && rowspan > 1) {
+            let newCell = cell.cloneNode(true);
+            cell.removeAttribute("rowspan");
 
-  "ПТС-17",
-  "ПТС-27",
-  "ПТС-217",
-  "ПТС-37",
-  "ПТС-317",
-  "ПФС-32",
-  "ПСЭ-11",
+            for (let k = 1; k < rowspan; k++) {
+              let nextRow = tableElement.rows[i + k];
+              if (nextRow) {
+                if (j <= nextRow.cells.length) {
+                  let nextCell = nextRow.insertCell(j);
+                  nextCell.innerHTML = newCell.innerHTML;
+                }
+              }
+            }
+          }
+        }
+      }
+    };
 
-  "ПЭС-15",
-  "ПЭС-115",
-  "ПЭС-25",
-  "ПЭС-35",
-  "ПЭС-315",
-  "ПКМ-12",
-  "ПКМ-22",
-  "ПМР-19",
-  "ПМР-119",
-  "ПМР-29",
-  "ПФО-16",
-  "ПФО-26",
-  "ПФО-36",
-  "ПСР-11",
-  "ПСР-21",
-  "ПСР-31",
-];
+    splitRowspan2TD(tableElement);
+
+    const groups = new Set();
+    const departmentsMap = new Map(); // Для хранения групп по отделениям
+
+    // Регулярка для групп: 1-3 буквы, тире, 2-3 цифры
+    const groupRegex = /^[А-Я]{1,3}-\d{2,3}$/;
+
+    // Регулярка для отделений (заглавные буквы, пробелы, точки)
+    const departmentRegex = /^[А-Я\s.]+$/;
+
+    let currentDepartment = null;
+
+    // Проходим по всем строкам таблицы
+    for (let i = 0; i < tableElement.rows.length; i++) {
+      const row = tableElement.rows[i];
+
+      // Проверяем первую ячейку строки на наличие отделения
+      const firstCell = row.cells[0];
+      if (firstCell) {
+        const firstCellValue = firstCell.innerText.trim();
+
+        // Если ячейка содержит название отделения (заглавные буквы)
+        if (departmentRegex.test(firstCellValue) && firstCellValue.length > 5) {
+          currentDepartment = firstCellValue;
+
+          // Инициализируем массив для отделения, если его еще нет
+          if (!departmentsMap.has(currentDepartment)) {
+            departmentsMap.set(currentDepartment, []);
+          }
+        }
+      }
+
+      // Проходим по всем ячейкам текущей строки для поиска групп
+      Array.from(row.cells).forEach((cell) => {
+        const cellValue = cell.innerText.trim();
+
+        if (groupRegex.test(cellValue) && currentDepartment) {
+          groups.add(cellValue);
+
+          // Добавляем группу в соответствующее отделение
+          const departmentGroups = departmentsMap.get(currentDepartment);
+          if (departmentGroups && !departmentGroups.includes(cellValue)) {
+            departmentGroups.push(cellValue);
+          }
+        }
+      });
+    }
+
+    // Сортируем группы в каждом отделении
+    departmentsMap.forEach((groups, department) => {
+      departmentsMap.set(department, groups.sort());
+    });
+
+    // Преобразуем Map в объект для удобства использования
+    const groupsByDepartment = Object.fromEntries(departmentsMap);
+
+    return {
+      allGroups: Array.from(groups).sort(),
+      groupsByDepartment,
+    };
+  } catch (error) {
+    console.error("Ошибка при парсинге групп:", error);
+    return { allGroups: [], groupsByDepartment: {} };
+  }
+};
+
+// Создаем переменные и экспортируем их
+export let allGroups = [];
+export let groupsByDepartment = {};
+
+// Функция для инициализации данных
+export const initGroups = async () => {
+  const data = await fetchAllGroups();
+  allGroups = data.allGroups;
+  groupsByDepartment = data.groupsByDepartment;
+
+  console.log("Загружены группы:", allGroups);
+  console.log("Группы по отделениям:", groupsByDepartment);
+
+  return { allGroups, groupsByDepartment };
+};
+
+// Автоматическая инициализация при импорте
+initGroups();
