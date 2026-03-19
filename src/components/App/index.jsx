@@ -1,6 +1,6 @@
 import { getVGTK } from "../../helpers/getVGTK";
 import { parseDateLabelToDDMMYYYY } from "../../helpers/parseDateLabelToDDMMYYYY";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { urlToday, urlTommorow } from "../../consts/url";
 import { CustomInput } from "../Inputs";
 import { CustomSelect } from "../Selects";
@@ -9,13 +9,12 @@ import { ThemeSwitcher } from "../ThemeSwitcher";
 import gerb from "../../assets/gerb.png";
 import inco from "../../assets/inco.png";
 
-import downloadjs from "downloadjs";
-import html2canvas from "html2canvas";
+// import downloadjs from "downloadjs";
+// import html2canvas from "html2canvas";
 
 import Modal from "../Modal";
 import { useTheme } from "../../hooks/use-theme";
 import { v4 as uuidv4 } from "uuid";
-import { useCallback } from "react";
 import { lessonsTime } from "../../consts/timeSchedule";
 // import { CopyTarification } from "../CopyTarification";
 import {
@@ -53,6 +52,9 @@ import TelegramLink from "../TelegramLink";
 
 const provider = new GoogleAuthProvider();
 
+// Ключ для хранения общих альтернативных названий в БД
+const ALT_NAMINGS_DB_KEY = "commonAltNamings";
+
 function App() {
   const [modalActive, setModalActive] = useState(false);
   const [advancedModalActive, setAdvancedModalActive] = useState(false);
@@ -70,6 +72,7 @@ function App() {
   const [userTarification, setUserTarification] = useState(
     JSON.parse(localStorage.getItem("userTarification")) || [],
   );
+  const [commonAltNamings, setCommonAltNamings] = useState([]);
   const [showTarification, setShowTarification] = useState(false);
   // const [isGuestMode, setIsGuestMode] = useState(true);
   const [isAddingFromModal, setIsAddingFromModal] = useState(false);
@@ -91,6 +94,59 @@ function App() {
   const [user, loading] = useAuthState(auth);
 
   const { theme, setTheme } = useTheme();
+
+  // Функция для сохранения общих альтернативных названий
+  const saveCommonAltNamings = async (altNamings) => {
+    if (!user) {
+      // Для гостей сохраняем в localStorage
+      localStorage.setItem(ALT_NAMINGS_DB_KEY, JSON.stringify(altNamings));
+    } else {
+      // Для авторизованных сохраняем в БД в общую папку
+      try {
+        await set(ref(db, `${ALT_NAMINGS_DB_KEY}`), altNamings);
+      } catch (error) {
+        console.error(
+          "Ошибка сохранения общих альтернативных названий:",
+          error,
+        );
+      }
+    }
+    setCommonAltNamings(altNamings);
+  };
+
+  // Загрузка общих альтернативных названий
+  useEffect(() => {
+    const loadCommonAltNamings = async () => {
+      if (user) {
+        try {
+          const snapshot = await get(ref(db, `${ALT_NAMINGS_DB_KEY}`));
+          if (snapshot.exists()) {
+            setCommonAltNamings(snapshot.val());
+          } else {
+            // Если в БД нет, пробуем загрузить из localStorage и перенести в БД
+            const localAltNamings =
+              JSON.parse(localStorage.getItem(ALT_NAMINGS_DB_KEY)) || [];
+            if (localAltNamings.length > 0) {
+              await saveCommonAltNamings(localAltNamings);
+            } else {
+              setCommonAltNamings([]);
+            }
+          }
+        } catch (error) {
+          console.error(
+            "Ошибка загрузки общих альтернативных названий:",
+            error,
+          );
+        }
+      } else {
+        // Для гостей загружаем из localStorage
+        const localAltNamings =
+          JSON.parse(localStorage.getItem(ALT_NAMINGS_DB_KEY)) || [];
+        setCommonAltNamings(localAltNamings);
+      }
+    };
+    loadCommonAltNamings();
+  }, [user]);
 
   const saveUserTarification = (userTarification) => {
     if (!user) {
@@ -170,14 +226,53 @@ function App() {
     );
   };
 
-  const addAlternativeName = (currentLessonModal, altName) => {
-    if (currentLessonModal.altNaming.some((el) => el === altName)) {
-      alert("Название уже существует");
+  // Получение всех альтернативных названий для конкретного урока
+  const getAltNamingsForLesson = (lessonName) => {
+    return commonAltNamings
+      .filter(
+        (item) =>
+          item.lessonName.toLowerCase().trim() ===
+          lessonName.toLowerCase().trim(),
+      )
+      .flatMap((item) => item.altNaming);
+  };
+
+  // Добавление альтернативного названия
+  const addAlternativeName = async (currentLessonModal, altName) => {
+    const lessonName = currentLessonModal.lesson;
+    const existingEntry = commonAltNamings.find(
+      (item) =>
+        item.lessonName.toLowerCase().trim() ===
+        lessonName.toLowerCase().trim(),
+    );
+
+    let updatedAltNamings;
+    if (existingEntry) {
+      if (
+        existingEntry.altNaming.some(
+          (el) => el.toLowerCase().trim() === altName.toLowerCase().trim(),
+        )
+      ) {
+        alert("Название уже существует");
+        return;
+      }
+      updatedAltNamings = commonAltNamings.map((item) =>
+        item.lessonName.toLowerCase().trim() === lessonName.toLowerCase().trim()
+          ? { ...item, altNaming: [...item.altNaming, altName] }
+          : item,
+      );
     } else {
-      currentLessonModal.altNaming.push(altName);
-      saveUserTarification(userTarification);
-      filterSchedule();
+      updatedAltNamings = [
+        ...commonAltNamings,
+        {
+          lessonName: lessonName,
+          altNaming: [altName],
+        },
+      ];
     }
+
+    await saveCommonAltNamings(updatedAltNamings);
+    filterSchedule();
   };
 
   const addGroupFromModal = (lesson) => {
@@ -224,7 +319,7 @@ function App() {
         lesson: inputLessonValue,
         lecture: checkboxLect,
         labs: checkboxLab,
-        altNaming: [],
+        // altNaming больше не хранится здесь
       };
 
       setUserTarification((prev) => [...prev, newGroup]);
@@ -249,17 +344,20 @@ function App() {
     );
 
     userTarification.forEach((item) => {
-      const { groupName, lesson, labs, lecture, altNaming } = item;
+      const { groupName, lesson, labs, lecture } = item;
       const groupKey = normalize(groupName);
       const scheduleItem = scheduleByGroup.get(groupKey);
       if (!scheduleItem) return;
 
+      // Получаем все альтернативные названия для текущего урока из общего хранилища
+      const altNamesForLesson = getAltNamingsForLesson(lesson);
+
       scheduleItem.lessons.forEach((l) => {
         const lessonNameNorm = normalize(l?.lessonName);
         const matchesMainLesson = lessonNameNorm === normalize(lesson);
-        const matchesAltNaming =
-          Array.isArray(altNaming) &&
-          altNaming.some((alt) => lessonNameNorm === normalize(alt));
+        const matchesAltNaming = altNamesForLesson.some(
+          (alt) => lessonNameNorm === normalize(alt),
+        );
         const isLab = !!l.isLab;
         const typeMatches = (labs && isLab) || (!isLab && lecture);
 
@@ -279,7 +377,7 @@ function App() {
     });
 
     setMySchedule(newSchedule);
-  }, [schedule, userTarification]);
+  }, [schedule, userTarification, commonAltNamings]);
 
   const handleAddHoursClick = () => {
     const refDate = parseDateLabelToDDMMYYYY(dateSchedule);
@@ -365,7 +463,13 @@ function App() {
   useEffect(() => {
     filterSchedule();
     getHours();
-  }, [schedule, myCabinetLectures, userTarification, filterSchedule]);
+  }, [
+    schedule,
+    myCabinetLectures,
+    userTarification,
+    commonAltNamings,
+    filterSchedule,
+  ]);
 
   useEffect(() => {
     console.log("USER ИЗМЕНИЛСЯ");
@@ -676,6 +780,7 @@ function App() {
           onSubmit={(e) => {
             handleFormSubmit(e, () => {
               addAlternativeName(currentLessonModal, altLessonNameInputValue);
+              setAltLessonNameInputValue("");
             });
           }}
           action=""
@@ -688,10 +793,9 @@ function App() {
         </AddPanel>
         <div>Альтернативные названия:</div>
         {currentLessonModal &&
-          currentLessonModal.altNaming &&
-          currentLessonModal.altNaming.map((el) => {
-            return <p key={el}>{el}</p>;
-          })}
+          getAltNamingsForLesson(currentLessonModal.lesson).map((el) => (
+            <p key={el}>{el}</p>
+          ))}
       </Modal>
 
       <Modal active={accountingHoursModal} setActive={setAccountingHoursModal}>
