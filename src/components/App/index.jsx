@@ -49,6 +49,7 @@ import { GoogleAuthProvider, signInWithPopup, signOut } from "firebase/auth";
 import { db } from "../../firebaseConfig/firebase";
 import { ScheduleTable } from "../HoursAccounting";
 import { AllGroupsSchedule } from "../AllGroupsSchedule";
+import TelegramLink from "../TelegramLink";
 
 const provider = new GoogleAuthProvider();
 
@@ -77,6 +78,7 @@ function App() {
   const [cabinetInputValue, setCabinetInputValue] = useState("");
   const [currentGroupModal, setCurrentGroupModal] = useState("");
   const [currentLessonModal, setCurrentLessonModal] = useState("");
+  const [telegramLinkModal, setTelegramLinkModal] = useState("");
   const [altLessonNameInputValue, setAltLessonNameInputValue] = useState("");
   const [myCabinet, setMyCabinet] = useState(
     localStorage.getItem("userCabinet") || null,
@@ -84,7 +86,7 @@ function App() {
   const [currentLessonNameFromModal, setCurrentLessonNameFromModal] =
     useState("");
   const [viewMode, setViewMode] = useState("my"); // 'my' - мое расписание, 'all' - все группы
-  const [showAllGroups, setShowAllGroups] = useState(false);
+  // const [showAllGroups, setShowAllGroups] = useState(false);
 
   const [user, loading] = useAuthState(auth);
 
@@ -125,6 +127,9 @@ function App() {
   const handleOpenModal = useCallback((groupName) => {
     setModalActive(true);
     setCurrentGroupModal(groupName);
+  }, []);
+  const handleOpenLinkModal = useCallback(() => {
+    setTelegramLinkModal(true);
   }, []);
 
   const handleOpenAdvancedModal = useCallback(
@@ -449,8 +454,15 @@ function App() {
         {!user ? (
           <FormButton onClick={handleSignInClick}>Войти</FormButton>
         ) : (
-          <FormButton onClick={handleLogOutClick}>Выйти</FormButton>
+          <>
+            <FormButton onClick={handleLogOutClick}>Выйти</FormButton>
+            <FormButton onClick={handleOpenLinkModal}>
+              Настройки профиля
+            </FormButton>
+          </>
         )}
+        {/* <TelegramLink></TelegramLink> */}
+        {/* <FormButton onClick={handleLogOutClick}>Выйти</FormButton> */}
         <ThemeSwitcher handleChangeTheme={handleChangeTheme} theme={theme} />
       </Head>
 
@@ -649,6 +661,10 @@ function App() {
               </LessonWrapper>
             ))}
         </div>
+      </Modal>
+
+      <Modal active={telegramLinkModal} setActive={setTelegramLinkModal}>
+        <TelegramLink></TelegramLink>
       </Modal>
 
       <Modal active={advancedModalActive} setActive={setAdvancedModalActive}>
