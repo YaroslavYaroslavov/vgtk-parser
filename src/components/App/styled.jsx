@@ -365,8 +365,10 @@ export const ViewToggleWrapper = styled.div`
   display: flex;
   gap: 10px;
   margin: 10px;
-  background-color: ${({ theme }) =>
-    theme === "dark" ? "#404040" : "#f0f0f0"};
+  background-color: var(--input-background-color);
+  border: solid;
+  border-radius: 5px;
+  border-color: var(--input-border-color);
   padding: 5px;
   border-radius: 30px;
   width: fit-content;
