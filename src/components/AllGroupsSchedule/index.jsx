@@ -2,30 +2,6 @@ import React, { useState, useEffect } from "react";
 import styled from "styled-components";
 import { groupsByDepartment } from "../../consts/allGroups"; // Импортируем данные об отделениях
 
-// Цвета для отделений (соответствуют цветам из таблицы)
-const departmentColors = {
-  "ОТДЕЛЕНИЕ АРХИТЕКТУРЫ И ГРАДОСТРОИТЕЛЬСТВА": "#e6f3ff", // Голубой
-  "ОТДЕЛЕНИЕ АВТОСЕРВИСА И ЭЛЕКТРОННЫХ СИСТЕМ": "#fff0e6", // Оранжевый/персиковый
-  "ОТДЕЛЕНИЕ АВТОМАТИЗАЦИИ И МАШИНОСТРОЕНИЯ": "#e6ffe6", // Салатовый
-  "ОТДЕЛЕНИЕ РОБОТОТЕХНИКИ И АВТОМАТИЗАЦИИ ПРОИЗВОДСТВ": "#ffe6e6", // Розовый/красноватый
-  "ОТДЕЛЕНИЕ СВАРОЧНЫХ И АВТОМОБИЛЬНЫХ ТЕХНОЛОГИЙ": "#e6e6ff", // Сиреневый
-  "ОТДЕЛЕНИЕ ТРАНСПОРТА": "#fff4e6", // Желтоватый
-  "ОТДЕЛЕНИЕ ЭЛЕКТРОНИКИ И ИНФОРМАЦИОННЫХ ТЕХНОЛОГИЙ": "#f0e6ff", // Фиолетовый
-  "ОТДЕЛЕНИЕ СТРОИТЕЛЬНЫХ ТЕХНОЛОГИЙ": "#ffe6f0", // Розовый
-};
-
-// Темные версии цветов для ночной темы
-const darkDepartmentColors = {
-  "ОТДЕЛЕНИЕ АРХИТЕКТУРЫ И ГРАДОСТРОИТЕЛЬСТВА": "#1a3b4f", // Темно-синий
-  "ОТДЕЛЕНИЕ АВТОСЕРВИСА И ЭЛЕКТРОННЫХ СИСТЕМ": "#4f3b1a", // Темно-оранжевый/коричневый
-  "ОТДЕЛЕНИЕ АВТОМАТИЗАЦИИ И МАШИНОСТРОЕНИЯ": "#1a4f1a", // Темно-зеленый
-  "ОТДЕЛЕНИЕ РОБОТОТЕХНИКИ И АВТОМАТИЗАЦИИ ПРОИЗВОДСТВ": "#4f1a1a", // Темно-красный
-  "ОТДЕЛЕНИЕ СВАРОЧНЫХ И АВТОМОБИЛЬНЫХ ТЕХНОЛОГИЙ": "#1a1a4f", // Темно-синий
-  "ОТДЕЛЕНИЕ ТРАНСПОРТА": "#4f3d1a", // Темно-желтый
-  "ОТДЕЛЕНИЕ ЭЛЕКТРОНИКИ И ИНФОРМАЦИОННЫХ ТЕХНОЛОГИЙ": "#2d1a4f", // Темно-фиолетовый
-  "ОТДЕЛЕНИЕ СТРОИТЕЛЬНЫХ ТЕХНОЛОГИЙ": "#4f1a3b", // Темно-розовый
-};
-
 // Функция для определения отделения по группе
 const getDepartmentForGroup = (groupName) => {
   console.log("Поиск отделения для группы:", groupName);
@@ -50,18 +26,26 @@ const SearchInput = styled.input`
   width: 100%;
   padding: 12px;
   margin-bottom: 20px;
-  border: 2px solid ${({ theme }) => (theme === "dark" ? "#444" : "#ddd")};
+  border: 2px solid ${({ theme }) => 
+    theme === "dark" ? "var(--input-border-color, #444)" : "var(--input-border-color, #ddd)"
+  };
   border-radius: 25px;
-  background: ${({ theme }) => (theme === "dark" ? "#333" : "#fff")};
-  color: ${({ theme }) => (theme === "dark" ? "#fff" : "#333")};
+  background: ${({ theme }) => 
+    theme === "dark" ? "var(--input-background-color, #333)" : "var(--input-background-color, #fff)"
+  };
+  color: var(--text-color);
   font-size: 16px;
   transition: all 0.3s ease;
 
   &:focus {
     outline: none;
-    border-color: #4a90e2;
-    box-shadow: 0 0 0 3px rgba(74, 144, 226, 0.2);
+    border-color: #ff8caf;
+    box-shadow: 0 0 0 3px rgba(255, 140, 175, 0.2);
     transform: scale(1.02);
+  }
+
+  &::placeholder {
+    color: var(--color-gray);
   }
 `;
 
@@ -84,9 +68,11 @@ const GroupsGrid = styled.div`
 `;
 
 const GroupCard = styled.div`
-  background: ${({ theme }) => (theme === "dark" ? "#2d2d2d" : "#fff")};
+  background: var(--card-background-color);
   border-radius: 12px;
-  border: 1px solid ${({ theme }) => (theme === "dark" ? "#444" : "#e0e0e0")};
+  border: 1px solid ${({ theme }) => 
+    theme === "dark" ? "var(--input-border-color, #444)" : "var(--input-border-color, #e0e0e0)"
+  };
   overflow: hidden;
   height: fit-content;
   display: flex;
@@ -109,42 +95,33 @@ const GroupCard = styled.div`
 
   &:hover {
     transform: translateY(-5px);
-    box-shadow: 0 10px 20px rgba(0, 0, 0, 0.1);
-    border-color: #4a90e2;
+    box-shadow: 0 10px 20px var(--color-black-half-opacity);
+    border-color: #ff8caf;
   }
 `;
 
 const GroupTitle = styled.div`
   background: ${({ theme, $departmentColor, $darkDepartmentColor }) => {
-    console.log("GroupTitle props:", {
-      theme,
-      $departmentColor,
-      $darkDepartmentColor,
-    });
-
     if (theme === "dark" && $darkDepartmentColor) {
-      console.log("Используем темный цвет:", $darkDepartmentColor);
       return $darkDepartmentColor;
     }
     if (theme === "light" && $departmentColor) {
-      console.log("Используем светлый цвет:", $departmentColor);
       return $departmentColor;
     }
-    console.log("Используем цвет по умолчанию");
-    return theme === "dark" ? "#3d3d3d" : "#f5f5f5";
+    return theme === "dark" ? "var(--card-background-color)" : "var(--color-white)";
   }};
   padding: 12px 15px;
   font-weight: bold;
   font-size: 18px;
   border-bottom: 1px solid
-    ${({ theme }) => (theme === "dark" ? "#444" : "#e0e0e0")};
-
-  /* Добавляем небольшой контраст для текста в темной теме */
+    ${({ theme }) => 
+      theme === "dark" ? "var(--input-border-color, #444)" : "var(--input-border-color, #e0e0e0)"
+    };
   color: ${({ theme, $darkDepartmentColor }) => {
     if (theme === "dark" && $darkDepartmentColor) {
-      return "#fff";
+      return "var(--color-white)";
     }
-    return "inherit";
+    return "var(--text-color)";
   }};
 `;
 
@@ -158,7 +135,14 @@ const LessonRow = styled.div`
   align-items: center;
   padding: 12px 15px;
   border-bottom: 1px solid
-    ${({ theme }) => (theme === "dark" ? "#444" : "#f0f0f0")};
+    ${({ theme }) => 
+      theme === "dark" ? "var(--input-border-color, #444)" : "var(--input-border-color, #f0f0f0)"
+    };
+  transition: background-color 0.2s ease;
+
+  &:hover {
+    background-color: var(--hover-color);
+  }
 
   /* Анимация для строк уроков */
   animation: rowAppear 0.3s ease forwards;
@@ -181,7 +165,7 @@ const LessonRow = styled.div`
 const LessonNumber = styled.div`
   width: 40px;
   font-weight: bold;
-  color: ${({ theme }) => (theme === "dark" ? "#aaa" : "#666")};
+  color: var(--color-gray);
 `;
 
 const LessonName = styled.div`
@@ -190,11 +174,18 @@ const LessonName = styled.div`
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  color: var(--text-color);
 `;
 
 const Cabinet = styled.div`
-  background: ${({ theme }) => (theme === "dark" ? "#4a4a4a" : "#e8f0fe")};
-  color: ${({ theme }) => (theme === "dark" ? "#fff" : "#1976d2")};
+  background: ${({ theme }) => 
+    theme === "dark" 
+      ? "var(--input-background-color)" 
+      : "var(--hover-color)"
+  };
+  color: ${({ theme }) => 
+    theme === "dark" ? "var(--color-white)" : "var(--color-green)"
+  };
   padding: 4px 10px;
   border-radius: 20px;
   font-size: 14px;
@@ -203,7 +194,11 @@ const Cabinet = styled.div`
   transition: all 0.2s ease;
 
   &:hover {
-    background: ${({ theme }) => (theme === "dark" ? "#5a5a5a" : "#d0e0ff")};
+    background: ${({ theme }) => 
+      theme === "dark" 
+        ? "var(--hover-color)" 
+        : "var(--hover-color-input)"
+    };
     transform: scale(1.05);
   }
 `;
@@ -211,7 +206,7 @@ const Cabinet = styled.div`
 const EmptyMessage = styled.div`
   text-align: center;
   padding: 40px;
-  color: #999;
+  color: var(--color-gray);
   font-size: 18px;
   animation: fadeIn 0.5s ease;
 
@@ -233,10 +228,12 @@ const StatsBar = styled.div`
   align-items: center;
   margin-bottom: 15px;
   padding: 10px 15px;
-  background: ${({ theme }) => (theme === "dark" ? "#2d2d2d" : "#f5f5f5")};
+  background: ${({ theme }) => 
+    theme === "dark" ? "var(--card-background-color)" : "var(--hover-color)"
+  };
   border-radius: 12px;
   font-size: 14px;
-  color: ${({ theme }) => (theme === "dark" ? "#fff" : "#333")};
+  color: var(--text-color);
   animation: statsAppear 0.3s ease;
 
   @keyframes statsAppear {
@@ -258,7 +255,7 @@ const StatsItem = styled.div`
 
   span {
     font-weight: bold;
-    color: #4a90e2;
+    color: #ff8caf;
     font-size: 18px;
   }
 `;
@@ -339,7 +336,30 @@ export const AllGroupsSchedule = ({
 
           // Определяем отделение для группы и получаем цвет
           const department = getDepartmentForGroup(groupName);
-          console.log(`Группа ${groupName}: отделение =`, department);
+          
+          // Цвета для отделений (соответствуют цветам из таблицы)
+          const departmentColors = {
+            "ОТДЕЛЕНИЕ АРХИТЕКТУРЫ И ГРАДОСТРОИТЕЛЬСТВА": "#e6f3ff", // Голубой
+            "ОТДЕЛЕНИЕ АВТОСЕРВИСА И ЭЛЕКТРОННЫХ СИСТЕМ": "#fff0e6", // Оранжевый/персиковый
+            "ОТДЕЛЕНИЕ АВТОМАТИЗАЦИИ И МАШИНОСТРОЕНИЯ": "#e6ffe6", // Салатовый
+            "ОТДЕЛЕНИЕ РОБОТОТЕХНИКИ И АВТОМАТИЗАЦИИ ПРОИЗВОДСТВ": "#ffe6e6", // Розовый/красноватый
+            "ОТДЕЛЕНИЕ СВАРОЧНЫХ И АВТОМОБИЛЬНЫХ ТЕХНОЛОГИЙ": "#e6e6ff", // Сиреневый
+            "ОТДЕЛЕНИЕ ТРАНСПОРТА": "#fff4e6", // Желтоватый
+            "ОТДЕЛЕНИЕ ЭЛЕКТРОНИКИ И ИНФОРМАЦИОННЫХ ТЕХНОЛОГИЙ": "#f0e6ff", // Фиолетовый
+            "ОТДЕЛЕНИЕ СТРОИТЕЛЬНЫХ ТЕХНОЛОГИЙ": "#ffe6f0", // Розовый
+          };
+
+          // Темные версии цветов для ночной темы
+          const darkDepartmentColors = {
+            "ОТДЕЛЕНИЕ АРХИТЕКТУРЫ И ГРАДОСТРОИТЕЛЬСТВА": "#1a3b4f", // Темно-синий
+            "ОТДЕЛЕНИЕ АВТОСЕРВИСА И ЭЛЕКТРОННЫХ СИСТЕМ": "#4f3b1a", // Темно-оранжевый/коричневый
+            "ОТДЕЛЕНИЕ АВТОМАТИЗАЦИИ И МАШИНОСТРОЕНИЯ": "#1a4f1a", // Темно-зеленый
+            "ОТДЕЛЕНИЕ РОБОТОТЕХНИКИ И АВТОМАТИЗАЦИИ ПРОИЗВОДСТВ": "#4f1a1a", // Темно-красный
+            "ОТДЕЛЕНИЕ СВАРОЧНЫХ И АВТОМОБИЛЬНЫХ ТЕХНОЛОГИЙ": "#1a1a4f", // Темно-синий
+            "ОТДЕЛЕНИЕ ТРАНСПОРТА": "#4f3d1a", // Темно-желтый
+            "ОТДЕЛЕНИЕ ЭЛЕКТРОНИКИ И ИНФОРМАЦИОННЫХ ТЕХНОЛОГИЙ": "#2d1a4f", // Темно-фиолетовый
+            "ОТДЕЛЕНИЕ СТРОИТЕЛЬНЫХ ТЕХНОЛОГИЙ": "#4f1a3b", // Темно-розовый
+          };
 
           const departmentColor = department
             ? departmentColors[department]
@@ -347,11 +367,6 @@ export const AllGroupsSchedule = ({
           const darkDepartmentColor = department
             ? darkDepartmentColors[department]
             : null;
-
-          console.log(`Цвета для ${groupName}:`, {
-            departmentColor,
-            darkDepartmentColor,
-          });
 
           return (
             <GroupCard
@@ -365,18 +380,6 @@ export const AllGroupsSchedule = ({
                 $darkDepartmentColor={darkDepartmentColor}
               >
                 {groupName}
-                {/* {department && (
-                  <span
-                    style={{
-                      fontSize: "12px",
-                      marginLeft: "8px",
-                      opacity: 0.7,
-                      fontWeight: "normal",
-                    }}
-                  >
-                    ({department.split(" ")[1]})
-                  </span>
-                )} */}
               </GroupTitle>
               <LessonsList>
                 {lessons.map((lesson, idx) => {
