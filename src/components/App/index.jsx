@@ -1,6 +1,6 @@
 import { getVGTK } from "../../helpers/getVGTK";
 import { parseDateLabelToDDMMYYYY } from "../../helpers/parseDateLabelToDDMMYYYY";
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { urlToday, urlTommorow } from "../../consts/url";
 import { CustomInput } from "../Inputs";
 import { CustomSelect } from "../Selects";
@@ -8,15 +8,10 @@ import { Checkbox } from "../Checkboxes";
 import { ThemeSwitcher } from "../ThemeSwitcher";
 import gerb from "../../assets/gerb.png";
 import inco from "../../assets/inco.png";
-
-// import downloadjs from "downloadjs";
-// import html2canvas from "html2canvas";
-
 import Modal from "../Modal";
 import { useTheme } from "../../hooks/use-theme";
 import { v4 as uuidv4 } from "uuid";
 import { lessonsTime } from "../../consts/timeSchedule";
-// import { CopyTarification } from "../CopyTarification";
 import {
   ImageLogo,
   TarificationWrapper,
@@ -39,6 +34,15 @@ import {
   ScheduleWrapper,
   ViewToggleWrapper,
   ViewToggleButton,
+  DateNavigationWrapper,
+  NavButton,
+  DatePickerContainer,
+  DatePickerHeader,
+  DatePickerDay,
+  DatePickerWeekday,
+  DatePickerGrid,
+  DatePickerDayButton,
+  AvailableDateBadge,
 } from "./styled";
 import { ToggleButton } from "../ToggleButton";
 import { useAuthState } from "react-firebase-hooks/auth";
@@ -55,6 +59,76 @@ const provider = new GoogleAuthProvider();
 // Ключ для хранения общих альтернативных названий в БД
 const ALT_NAMINGS_DB_KEY = "commonAltNamings";
 
+// Функция для форматирования даты
+const formatDate = (date) => {
+  const day = String(date.getDate()).padStart(2, "0");
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const year = date.getFullYear();
+  return `${day}-${month}-${year}`;
+};
+
+// Функция для форматирования отображаемой даты
+const formatDisplayDate = (date) => {
+  const months = [
+    "января",
+    "февраля",
+    "марта",
+    "апреля",
+    "мая",
+    "июня",
+    "июля",
+    "августа",
+    "сентября",
+    "октября",
+    "ноября",
+    "декабря",
+  ];
+  const weekdays = [
+    "воскресенье",
+    "понедельник",
+    "вторник",
+    "среда",
+    "четверг",
+    "пятница",
+    "суббота",
+  ];
+
+  return `${date.getDate()} ${months[date.getMonth()]} ${date.getFullYear()} года (${weekdays[date.getDay()].toUpperCase()})`;
+};
+
+// Функция для получения списка доступных дат из Firebase
+const getAvailableDates = async () => {
+  try {
+    const schedulesRef = ref(db, "schedules_by_date");
+    const snapshot = await get(schedulesRef);
+
+    if (snapshot.exists()) {
+      const dates = Object.keys(snapshot.val());
+      return dates.sort(); // Сортируем по возрастанию
+    }
+    return [];
+  } catch (error) {
+    console.error("Ошибка получения доступных дат:", error);
+    return [];
+  }
+};
+
+// Функция для получения расписания по дате
+const getScheduleByDate = async (dateKey) => {
+  try {
+    const scheduleRef = ref(db, `schedules_by_date/${dateKey}`);
+    const snapshot = await get(scheduleRef);
+
+    if (snapshot.exists()) {
+      return snapshot.val();
+    }
+    return null;
+  } catch (error) {
+    console.error("Ошибка получения расписания по дате:", error);
+    return null;
+  }
+};
+
 function App() {
   const [modalActive, setModalActive] = useState(false);
   const [advancedModalActive, setAdvancedModalActive] = useState(false);
@@ -62,6 +136,7 @@ function App() {
   const [mySchedule, setMySchedule] = useState([]);
   const [myCabinetLectures, setMyCabinetLectures] = useState([]);
   const [dateSchedule, setDateSchedule] = useState("Пожалуйста подождите");
+  const [dateKey, setDateKey] = useState(null);
   const [inputLessonValue, setInputLessonValue] = useState("");
   const [selectGroupValue, setSelectGroupValue] = useState("");
   const [checkboxLect, setCheckboxLect] = useState(false);
@@ -74,9 +149,7 @@ function App() {
   );
   const [commonAltNamings, setCommonAltNamings] = useState([]);
   const [showTarification, setShowTarification] = useState(false);
-  // const [isGuestMode, setIsGuestMode] = useState(true);
   const [isAddingFromModal, setIsAddingFromModal] = useState(false);
-  const [isUrlToday, setIsUrlToday] = useState(false);
   const [isCabinetMode, setIsCabinetMode] = useState(false);
   const [cabinetInputValue, setCabinetInputValue] = useState("");
   const [currentGroupModal, setCurrentGroupModal] = useState("");
@@ -88,20 +161,272 @@ function App() {
   );
   const [currentLessonNameFromModal, setCurrentLessonNameFromModal] =
     useState("");
-  const [viewMode, setViewMode] = useState("my"); // 'my' - мое расписание, 'all' - все группы
-  // const [showAllGroups, setShowAllGroups] = useState(false);
+  const [viewMode, setViewMode] = useState("my");
+  const [isLoading, setIsLoading] = useState(false);
+  const [availableDates, setAvailableDates] = useState([]);
+  const [datePickerModal, setDatePickerModal] = useState(false);
+  const [currentDate, setCurrentDate] = useState(new Date());
+  const [hasUsedDatePicker, setHasUsedDatePicker] = useState(false);
+
+  const longPressTimer = useRef(null);
+  const isLongPress = useRef(false);
 
   const [user, loading] = useAuthState(auth);
-
   const { theme, setTheme } = useTheme();
 
-  // Функция для сохранения общих альтернативных названий
+  // Функция для загрузки расписания по дате
+  const loadScheduleByDate = useCallback(
+    async (targetDate, isUserSelected = false) => {
+      setIsLoading(true);
+      try {
+        const dateKey = formatDate(targetDate);
+        const scheduleData = await getScheduleByDate(dateKey);
+
+        if (scheduleData && scheduleData.schedule) {
+          setSchedule(scheduleData.schedule);
+          setDateSchedule(scheduleData.date || formatDisplayDate(targetDate));
+          setDateKey(dateKey);
+          console.log(
+            `✅ Расписание на ${dateKey} загружено, групп: ${scheduleData.schedule.length}`,
+          );
+
+          if (isUserSelected) {
+            setHasUsedDatePicker(true);
+            localStorage.setItem("lastSelectedDate", dateKey);
+          }
+        } else {
+          console.log(`❌ Расписание на ${dateKey} не найдено`);
+          setSchedule([]);
+          setDateSchedule(`Нет расписания на ${formatDisplayDate(targetDate)}`);
+          setDateKey(null);
+        }
+      } catch (error) {
+        console.error("Ошибка при загрузке расписания:", error);
+        setSchedule([]);
+        setDateSchedule("Ошибка загрузки расписания");
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    [],
+  );
+
+  // Функция для загрузки текущего расписания (сегодня/завтра)
+  const loadCurrentSchedule = useCallback(async (type = "today") => {
+    setIsLoading(true);
+    try {
+      const today = new Date();
+      const targetDate = type === "today" ? today : new Date(today);
+      if (type === "tomorrow") targetDate.setDate(today.getDate() + 1);
+
+      const dateKey = formatDate(targetDate);
+      const scheduleData = await getScheduleByDate(dateKey);
+
+      if (scheduleData && scheduleData.schedule) {
+        setSchedule(scheduleData.schedule);
+        setDateSchedule(scheduleData.date || formatDisplayDate(targetDate));
+        setDateKey(dateKey);
+        console.log(
+          `✅ Расписание на ${type} загружено, групп: ${scheduleData.schedule.length}`,
+        );
+      } else {
+        console.log(`❌ Расписание на ${type} не найдено`);
+        setSchedule([]);
+        setDateSchedule(
+          type === "today"
+            ? "Расписание на сегодня не опубликовано"
+            : "Расписание на завтра не опубликовано",
+        );
+        setDateKey(null);
+      }
+    } catch (error) {
+      console.error("Ошибка при загрузке расписания:", error);
+      setSchedule([]);
+      setDateSchedule("Ошибка загрузки расписания");
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  // Загрузка доступных дат
+  useEffect(() => {
+    const loadAvailableDates = async () => {
+      const dates = await getAvailableDates();
+      setAvailableDates(dates);
+
+      // Проверяем, была ли сохранена последняя выбранная дата
+      const lastSelectedDate = localStorage.getItem("lastSelectedDate");
+      if (lastSelectedDate && dates.includes(lastSelectedDate)) {
+        const [day, month, year] = lastSelectedDate.split("-");
+        const date = new Date(year, month - 1, day);
+        loadScheduleByDate(date, true);
+        setCurrentDate(date);
+      }
+    };
+
+    loadAvailableDates();
+  }, [loadScheduleByDate]);
+
+  // Обработчики нажатия на дату
+  const handleDatePressStart = () => {
+    isLongPress.current = false;
+    longPressTimer.current = setTimeout(() => {
+      isLongPress.current = true;
+      setDatePickerModal(true);
+    }, 500); // 500ms для определения долгого нажатия
+  };
+
+  const handleDatePressEnd = () => {
+    if (longPressTimer.current) {
+      clearTimeout(longPressTimer.current);
+    }
+
+    if (!isLongPress.current) {
+      // Короткое нажатие - переключение сегодня/завтра
+      const today = new Date();
+      const currentDateKey = dateKey ? dateKey.split("-") : null;
+
+      if (currentDateKey) {
+        const [day, month, year] = currentDateKey;
+        const currentDateObj = new Date(year, month - 1, day);
+        const todayDateObj = new Date(
+          today.getFullYear(),
+          today.getMonth(),
+          today.getDate(),
+        );
+
+        if (currentDateObj.getTime() === todayDateObj.getTime()) {
+          // Если сейчас сегодня, переключаем на завтра
+          loadCurrentSchedule("tomorrow");
+        } else {
+          // Иначе переключаем на сегодня
+          loadCurrentSchedule("today");
+        }
+      } else {
+        loadCurrentSchedule("today");
+      }
+    }
+
+    isLongPress.current = false;
+  };
+
+  // Навигация по дням
+  const navigateDay = (direction) => {
+    const newDate = new Date(currentDate);
+    newDate.setDate(currentDate.getDate() + direction);
+
+    // Проверяем, есть ли расписание на эту дату
+    const newDateKey = formatDate(newDate);
+    if (availableDates.includes(newDateKey)) {
+      loadScheduleByDate(newDate, true);
+      setCurrentDate(newDate);
+    } else {
+      // Если расписания нет, показываем уведомление
+      alert(`Расписание на ${formatDisplayDate(newDate)} не опубликовано`);
+    }
+  };
+
+  // Выбор даты из календаря
+  const selectDate = (date) => {
+    const dateKey = formatDate(date);
+    if (availableDates.includes(dateKey)) {
+      loadScheduleByDate(date, true);
+      setCurrentDate(date);
+      setDatePickerModal(false);
+    } else {
+      alert(`Расписание на ${formatDisplayDate(date)} не опубликовано`);
+    }
+  };
+
+  // Получение дней для календаря
+  const getDaysInMonth = (year, month) => {
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+    const firstDayOfMonth = new Date(year, month, 1).getDay();
+    const days = [];
+
+    // Добавляем пустые дни для выравнивания
+    for (
+      let i = 0;
+      i < (firstDayOfMonth === 0 ? 6 : firstDayOfMonth - 1);
+      i++
+    ) {
+      days.push(null);
+    }
+
+    // Добавляем дни месяца
+    for (let i = 1; i <= daysInMonth; i++) {
+      days.push(new Date(year, month, i));
+    }
+
+    return days;
+  };
+
+  const changeMonth = (delta) => {
+    const newDate = new Date(currentDate);
+    newDate.setMonth(currentDate.getMonth() + delta);
+    setCurrentDate(newDate);
+  };
+
+  // Слушаем изменения в расписании в реальном времени
+  useEffect(() => {
+    if (!dateKey) return;
+
+    const dateRef = ref(db, `schedules_by_date/${dateKey}`);
+    const unsubscribe = onValue(
+      dateRef,
+      (snapshot) => {
+        if (snapshot.exists() && snapshot.val().schedule) {
+          console.log(
+            `🔄 Расписание на дату ${dateKey} обновилось в реальном времени`,
+          );
+          setSchedule(snapshot.val().schedule);
+        }
+      },
+      (error) => {
+        console.error("Ошибка при подписке на обновления расписания:", error);
+      },
+    );
+
+    return () => unsubscribe();
+  }, [dateKey]);
+
+  // Фильтрация расписания по кабинету
+  const filterScheduleByCabinet = useCallback((scheduleData, cabinet) => {
+    const cabinetLessons = [];
+
+    scheduleData.forEach((group) => {
+      group.lessons.forEach((lesson) => {
+        if (lesson.cabinet && lesson.cabinet.includes(cabinet)) {
+          cabinetLessons.push({
+            ...lesson,
+            groupName: group.groupName,
+          });
+        }
+      });
+    });
+
+    cabinetLessons.sort((a, b) => {
+      const na = parseFloat(a?.lessonNumber) || 0;
+      const nb = parseFloat(b?.lessonNumber) || 0;
+      return na - nb;
+    });
+
+    return cabinetLessons;
+  }, []);
+
+  // Обновляем расписание по кабинету
+  useEffect(() => {
+    if (myCabinet && schedule.length > 0) {
+      const filtered = filterScheduleByCabinet(schedule, myCabinet);
+      setMyCabinetLectures(filtered);
+    }
+  }, [schedule, myCabinet, filterScheduleByCabinet]);
+
+  // Остальные функции (saveCommonAltNamings, etc.) остаются без изменений
   const saveCommonAltNamings = async (altNamings) => {
     if (!user) {
-      // Для гостей сохраняем в localStorage
       localStorage.setItem(ALT_NAMINGS_DB_KEY, JSON.stringify(altNamings));
     } else {
-      // Для авторизованных сохраняем в БД в общую папку
       try {
         await set(ref(db, `${ALT_NAMINGS_DB_KEY}`), altNamings);
       } catch (error) {
@@ -123,7 +448,6 @@ function App() {
           if (snapshot.exists()) {
             setCommonAltNamings(snapshot.val());
           } else {
-            // Если в БД нет, пробуем загрузить из localStorage и перенести в БД
             const localAltNamings =
               JSON.parse(localStorage.getItem(ALT_NAMINGS_DB_KEY)) || [];
             if (localAltNamings.length > 0) {
@@ -139,7 +463,6 @@ function App() {
           );
         }
       } else {
-        // Для гостей загружаем из localStorage
         const localAltNamings =
           JSON.parse(localStorage.getItem(ALT_NAMINGS_DB_KEY)) || [];
         setCommonAltNamings(localAltNamings);
@@ -150,7 +473,6 @@ function App() {
 
   const saveUserTarification = (userTarification) => {
     if (!user) {
-      console.log("Нет пользователя");
       localStorage.setItem(
         "userTarification",
         JSON.stringify(userTarification),
@@ -176,6 +498,7 @@ function App() {
   const onLessonInputChange = (event) => {
     setInputLessonValue(event.target.value);
   };
+
   const onAltLessonNameInputChange = (event) => {
     setAltLessonNameInputValue(event.target.value);
   };
@@ -184,6 +507,7 @@ function App() {
     setModalActive(true);
     setCurrentGroupModal(groupName);
   }, []);
+
   const handleOpenLinkModal = useCallback(() => {
     setTelegramLinkModal(true);
   }, []);
@@ -226,7 +550,6 @@ function App() {
     );
   };
 
-  // Получение всех альтернативных названий для конкретного урока
   const getAltNamingsForLesson = (lessonName) => {
     return commonAltNamings
       .filter(
@@ -237,7 +560,6 @@ function App() {
       .flatMap((item) => item.altNaming);
   };
 
-  // Добавление альтернативного названия
   const addAlternativeName = async (currentLessonModal, altName) => {
     const lessonName = currentLessonModal.lesson;
     const existingEntry = commonAltNamings.find(
@@ -281,7 +603,6 @@ function App() {
         'Группа с таким занятием уже существует. Удалите её в разделе "Редактировать" и внесите в ручном режиме.',
       );
     } else {
-      console.log("УРОК ИЗ МОДАЛКИ", lesson);
       setCurrentLessonNameFromModal(lesson.lessonName);
       setIsAddingFromModal(true);
     }
@@ -319,7 +640,6 @@ function App() {
         lesson: inputLessonValue,
         lecture: checkboxLect,
         labs: checkboxLab,
-        // altNaming больше не хранится здесь
       };
 
       setUserTarification((prev) => [...prev, newGroup]);
@@ -340,7 +660,7 @@ function App() {
     const normalize = (s) => (s || "").toLowerCase().trim();
 
     const scheduleByGroup = new Map(
-      schedule.map((s) => [(s.groupName ?? "").toLowerCase().trim(), s]),
+      schedule.map((s) => [normalize(s.groupName || ""), s]),
     );
 
     userTarification.forEach((item) => {
@@ -349,7 +669,6 @@ function App() {
       const scheduleItem = scheduleByGroup.get(groupKey);
       if (!scheduleItem) return;
 
-      // Получаем все альтернативные названия для текущего урока из общего хранилища
       const altNamesForLesson = getAltNamingsForLesson(lesson);
 
       scheduleItem.lessons.forEach((l) => {
@@ -380,7 +699,7 @@ function App() {
   }, [schedule, userTarification, commonAltNamings]);
 
   const handleAddHoursClick = () => {
-    const refDate = parseDateLabelToDDMMYYYY(dateSchedule);
+    const refDate = dateKey || parseDateLabelToDDMMYYYY(dateSchedule);
 
     const writeData = () => {
       setLoadHours(1);
@@ -449,30 +768,11 @@ function App() {
   };
 
   useEffect(() => {
-    const fetchData = async () => {
-      const [fetchedSchedule, fetchedMyCabinetLectures, dateSchedule] =
-        await getVGTK(isUrlToday ? urlToday : urlTommorow, myCabinet);
-      setSchedule(fetchedSchedule);
-      setMyCabinetLectures(fetchedMyCabinetLectures);
-      setDateSchedule(dateSchedule);
-    };
-
-    fetchData();
-  }, [isUrlToday, myCabinet]);
-
-  useEffect(() => {
     filterSchedule();
     getHours();
-  }, [
-    schedule,
-    myCabinetLectures,
-    userTarification,
-    commonAltNamings,
-    filterSchedule,
-  ]);
+  }, [schedule, userTarification, commonAltNamings, filterSchedule]);
 
   useEffect(() => {
-    console.log("USER ИЗМЕНИЛСЯ");
     if (user) {
       get(ref(db, `users/${auth?.currentUser?.uid}/tarification`))
         .then((snapshot) => {
@@ -539,7 +839,12 @@ function App() {
     return () => unsubscribe();
   }, []);
 
-  console.log(mySchedule);
+  // Получаем дни для календаря
+  const daysInMonth = getDaysInMonth(
+    currentDate.getFullYear(),
+    currentDate.getMonth(),
+  );
+  const weekdays = ["ПН", "ВТ", "СР", "ЧТ", "ПТ", "СБ", "ВС"];
 
   return (
     <AppWrapper>
@@ -548,13 +853,31 @@ function App() {
           <ImageLogo src={gerb} alt="" />
         </a>
         {user ? <ImageLogo src={user.photoURL} /> : <ImageLogo src={inco} />}
-        <DateSchedule
-          onClick={() => {
-            setIsUrlToday((prev) => !prev);
-          }}
-        >
-          {dateSchedule}
-        </DateSchedule>
+
+        <DateNavigationWrapper>
+          {hasUsedDatePicker && (
+            <NavButton onClick={() => navigateDay(-1)} theme={theme}>
+              ◀
+            </NavButton>
+          )}
+
+          <DateSchedule
+            onMouseDown={handleDatePressStart}
+            onMouseUp={handleDatePressEnd}
+            onTouchStart={handleDatePressStart}
+            onTouchEnd={handleDatePressEnd}
+            style={{ cursor: "pointer", userSelect: "none" }}
+          >
+            {isLoading ? "Загрузка..." : dateSchedule}
+          </DateSchedule>
+
+          {hasUsedDatePicker && (
+            <NavButton onClick={() => navigateDay(1)} theme={theme}>
+              ▶
+            </NavButton>
+          )}
+        </DateNavigationWrapper>
+
         {!user ? (
           <FormButton onClick={handleSignInClick}>Войти</FormButton>
         ) : (
@@ -565,10 +888,64 @@ function App() {
             </FormButton>
           </>
         )}
-        {/* <TelegramLink></TelegramLink> */}
-        {/* <FormButton onClick={handleLogOutClick}>Выйти</FormButton> */}
         <ThemeSwitcher handleChangeTheme={handleChangeTheme} theme={theme} />
       </Head>
+
+      {/* Модальное окно выбора даты */}
+      <Modal active={datePickerModal} setActive={setDatePickerModal}>
+        <DatePickerContainer theme={theme}>
+          <DatePickerHeader theme={theme}>
+            <NavButton onClick={() => changeMonth(-1)} theme={theme}>
+              ◀
+            </NavButton>
+            <h3>
+              {currentDate.toLocaleString("ru", {
+                month: "long",
+                year: "numeric",
+              })}
+            </h3>
+            <NavButton onClick={() => changeMonth(1)} theme={theme}>
+              ▶
+            </NavButton>
+          </DatePickerHeader>
+
+          <DatePickerGrid>
+            {weekdays.map((day) => (
+              <DatePickerWeekday key={day} theme={theme}>
+                {day}
+              </DatePickerWeekday>
+            ))}
+
+            {daysInMonth.map((date, index) => {
+              if (!date) {
+                return <DatePickerDay key={`empty-${index}`} />;
+              }
+
+              const dateKey = formatDate(date);
+              const isAvailable = availableDates.includes(dateKey);
+              const isToday = formatDate(new Date()) === dateKey;
+
+              return (
+                <DatePickerDayButton
+                  key={dateKey}
+                  isAvailable={isAvailable}
+                  isToday={isToday}
+                  onClick={() => isAvailable && selectDate(date)}
+                  theme={theme}
+                  disabled={!isAvailable}
+                >
+                  {date.getDate()}
+                  {isAvailable && <AvailableDateBadge theme={theme} />}
+                </DatePickerDayButton>
+              );
+            })}
+          </DatePickerGrid>
+
+          <div style={{ marginTop: "15px", fontSize: "12px", opacity: 0.7 }}>
+            💡 Доступные даты отмечены точкой
+          </div>
+        </DatePickerContainer>
+      </Modal>
 
       <Tarification>
         <AddPanel
@@ -580,17 +957,18 @@ function App() {
           <CustomInput
             handleInputChange={onLessonInputChange}
             inputValue={inputLessonValue}
-          ></CustomInput>
-          <CustomSelect handleSelectChange={handleSelectGroup}></CustomSelect>
+            placeholder="Название предмета"
+          />
+          <CustomSelect handleSelectChange={handleSelectGroup} />
           <CheckboxWrapper>
             <Checkbox
               label={"Лабораторные"}
               handleCheckBoxChange={handleCheckboxLab}
-            ></Checkbox>
+            />
             <Checkbox
               label={"Лекции"}
               handleCheckBoxChange={handleCheckboxLect}
-            ></Checkbox>
+            />
           </CheckboxWrapper>
           <FormButton type="submit">Добавить</FormButton>
           <FormButton
@@ -654,7 +1032,7 @@ function App() {
                   onChange={handleCabinetInputChange}
                   value={cabinetInputValue}
                   type="text"
-                  placeholder={`Ваш кабинет: ${myCabinet}`}
+                  placeholder={`Ваш кабинет: ${myCabinet || "не указан"}`}
                 />
                 <SetCabinetNumber onClick={handleSetMyCabinet}>
                   +
@@ -693,8 +1071,10 @@ function App() {
                   </LessonWrapper>
                 ))}
               {isCabinetMode &&
-                myCabinetLectures.map((el) => (
-                  <LessonWrapper key={`${el.lessonName + el.lessonNumber}`}>
+                myCabinetLectures.map((el, index) => (
+                  <LessonWrapper
+                    key={`${el.lessonName + el.lessonNumber + index}`}
+                  >
                     <CabinetNumber>{el.lessonNumber}</CabinetNumber>
                     <LessonName>{lessonsTime[el.lessonNumber]}</LessonName>
                     <LessonName>{el.lessonName}</LessonName>
@@ -758,7 +1138,7 @@ function App() {
                     Добавить
                   </FormButton>
                 )) || (
-                  <FormButton onClick={() => handleDeleteByLesson(lesson)}>
+                  <FormButton onClick={() => handleDeleteByID(lesson.id)}>
                     Удалить
                   </FormButton>
                 )}
@@ -768,7 +1148,7 @@ function App() {
       </Modal>
 
       <Modal active={telegramLinkModal} setActive={setTelegramLinkModal}>
-        <TelegramLink></TelegramLink>
+        <TelegramLink />
       </Modal>
 
       <Modal active={advancedModalActive} setActive={setAdvancedModalActive}>
@@ -788,7 +1168,8 @@ function App() {
           <CustomInput
             handleInputChange={onAltLessonNameInputChange}
             inputValue={altLessonNameInputValue}
-          ></CustomInput>
+            placeholder="Альтернативное название"
+          />
           <FormButton type="submit">Добавить</FormButton>
         </AddPanel>
         <div>Альтернативные названия:</div>
@@ -805,7 +1186,7 @@ function App() {
             setFetchedHours(data);
           }}
           userTarification={userTarification}
-        ></ScheduleTable>
+        />
       </Modal>
 
       <Modal active={isAddingFromModal} setActive={setIsAddingFromModal}>

@@ -398,3 +398,122 @@ export const ViewToggleButton = styled.button`
           : "#e0e0e0"};
   }
 `;
+// Добавьте эти стили в ваш файл styled.js
+
+export const DateNavigationWrapper = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 10px;
+`;
+
+export const NavButton = styled.button`
+  background: ${(props) => (props.theme === "dark" ? "#444" : "#f0f0f0")};
+  border: none;
+  border-radius: 50%;
+  width: 30px;
+  height: 30px;
+  cursor: pointer;
+  font-size: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+
+  &:hover {
+    background: ${(props) => (props.theme === "dark" ? "#555" : "#e0e0e0")};
+    transform: scale(1.05);
+  }
+
+  &:active {
+    transform: scale(0.95);
+  }
+`;
+
+export const DatePickerContainer = styled.div`
+  padding: 20px;
+  background: ${(props) => (props.theme === "dark" ? "#2d2d2d" : "#ffffff")};
+  border-radius: 12px;
+  min-width: 300px;
+`;
+
+export const DatePickerHeader = styled.div`
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+
+  h3 {
+    margin: 0;
+    font-size: 18px;
+    text-transform: capitalize;
+  }
+`;
+
+export const DatePickerGrid = styled.div`
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 5px;
+  margin-bottom: 15px;
+`;
+
+export const DatePickerWeekday = styled.div`
+  text-align: center;
+  font-weight: bold;
+  font-size: 12px;
+  padding: 8px;
+  color: ${(props) => (props.theme === "dark" ? "#aaa" : "#666")};
+`;
+
+export const DatePickerDay = styled.div`
+  aspect-ratio: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+`;
+
+export const DatePickerDayButton = styled.button`
+  aspect-ratio: 1;
+  width: 100%;
+  border: none;
+  border-radius: 8px;
+  cursor: ${(props) => (props.isAvailable ? "pointer" : "not-allowed")};
+  background: ${(props) => {
+    if (props.isToday) return props.theme === "dark" ? "#4a90e2" : "#007bff";
+    if (props.isAvailable)
+      return props.theme === "dark" ? "#3d3d3d" : "#f8f9fa";
+    return props.theme === "dark" ? "#2d2d2d" : "#f0f0f0";
+  }};
+  color: ${(props) => {
+    if (props.isToday) return "#ffffff";
+    if (!props.isAvailable) return props.theme === "dark" ? "#666" : "#ccc";
+    return props.theme === "dark" ? "#e0e0e0" : "#333";
+  }};
+  font-size: 14px;
+  font-weight: ${(props) => (props.isToday ? "bold" : "normal")};
+  transition: all 0.2s;
+  position: relative;
+
+  &:hover {
+    background: ${(props) => {
+      if (!props.isAvailable)
+        return props.theme === "dark" ? "#2d2d2d" : "#f0f0f0";
+      return props.theme === "dark" ? "#4a4a4a" : "#e0e0e0";
+    }};
+    transform: ${(props) => (props.isAvailable ? "scale(1.05)" : "none")};
+  }
+
+  &:active {
+    transform: ${(props) => (props.isAvailable ? "scale(0.95)" : "none")};
+  }
+`;
+
+export const AvailableDateBadge = styled.div`
+  position: absolute;
+  bottom: 2px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: ${(props) => (props.theme === "dark" ? "#4a90e2" : "#007bff")};
+`;
