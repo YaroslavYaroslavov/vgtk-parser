@@ -315,14 +315,40 @@ function App() {
     const newDate = new Date(currentDate);
     newDate.setDate(currentDate.getDate() + direction);
 
-    // Проверяем, есть ли расписание на эту дату
     const newDateKey = formatDate(newDate);
+
+    // Если на следующий/предыдущий день есть расписание
     if (availableDates.includes(newDateKey)) {
       loadScheduleByDate(newDate, true);
       setCurrentDate(newDate);
-    } else {
-      // Если расписания нет, показываем уведомление
-      alert(`Расписание на ${formatDisplayDate(newDate)} не опубликовано`);
+      return;
+    }
+
+    // Если нет, ищем ближайший доступный день в этом направлении
+    let searchDate = new Date(newDate);
+    let found = false;
+    let steps = 1;
+    const maxSteps = 30; // Максимальное количество дней для поиска
+
+    while (steps <= maxSteps && !found) {
+      searchDate.setDate(currentDate.getDate() + direction * steps);
+      const searchDateKey = formatDate(searchDate);
+
+      if (availableDates.includes(searchDateKey)) {
+        loadScheduleByDate(searchDate, true);
+        setCurrentDate(searchDate);
+        found = true;
+        break;
+      }
+      steps++;
+    }
+
+    // Если ничего не найдено в пределах maxSteps дней
+    if (!found) {
+      const directionText = direction === 1 ? "вперед" : "назад";
+      alert(
+        `Нет доступного расписания ${directionText} в ближайшие ${maxSteps} дней`,
+      );
     }
   };
 
