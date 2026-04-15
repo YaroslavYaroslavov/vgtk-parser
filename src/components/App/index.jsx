@@ -166,10 +166,6 @@ function App() {
   const [availableDates, setAvailableDates] = useState([]);
   const [datePickerModal, setDatePickerModal] = useState(false);
   const [currentDate, setCurrentDate] = useState(new Date());
-  const [hasUsedDatePicker, setHasUsedDatePicker] = useState(false);
-
-  const longPressTimer = useRef(null);
-  const isLongPress = useRef(false);
 
   const [user, loading] = useAuthState(auth);
   const { theme, setTheme } = useTheme();
@@ -186,12 +182,12 @@ function App() {
           setSchedule(scheduleData.schedule);
           setDateSchedule(scheduleData.date || formatDisplayDate(targetDate));
           setDateKey(dateKey);
+          setCurrentDate(targetDate);
           console.log(
             `✅ Расписание на ${dateKey} загружено, групп: ${scheduleData.schedule.length}`,
           );
 
           if (isUserSelected) {
-            setHasUsedDatePicker(true);
             localStorage.setItem("lastSelectedDate", dateKey);
           }
         } else {
@@ -211,158 +207,79 @@ function App() {
     [],
   );
 
-  // Функция для загрузки текущего расписания (сегодня/завтра)
-  const loadCurrentSchedule = useCallback(async (type = "today") => {
-    setIsLoading(true);
-    try {
-      const today = new Date();
-      const targetDate = type === "today" ? today : new Date(today);
-      if (type === "tomorrow") targetDate.setDate(today.getDate() + 1);
-
-      const dateKey = formatDate(targetDate);
-      const scheduleData = await getScheduleByDate(dateKey);
-
-      if (scheduleData && scheduleData.schedule) {
-        setSchedule(scheduleData.schedule);
-        setDateSchedule(scheduleData.date || formatDisplayDate(targetDate));
-        setDateKey(dateKey);
-        console.log(
-          `✅ Расписание на ${type} загружено, групп: ${scheduleData.schedule.length}`,
-        );
-      } else {
-        console.log(`❌ Расписание на ${type} не найдено`);
-        setSchedule([]);
-        setDateSchedule(
-          type === "today"
-            ? "Расписание на сегодня не опубликовано"
-            : "Расписание на завтра не опубликовано",
-        );
-        setDateKey(null);
+  // Навигация по дням
+  // Навигация по дням (по календарным дням, а не по списку доступных)
+  const navigateDay = useCallback(
+    (direction) => {
+      if (availableDates.length === 0) {
+        alert("Нет доступных дат с расписанием");
+        return;
       }
-    } catch (error) {
-      console.error("Ошибка при загрузке расписания:", error);
-      setSchedule([]);
-      setDateSchedule("Ошибка загрузки расписания");
-    } finally {
-      setIsLoading(false);
-    }
-  }, []);
 
-  // Загрузка доступных дат
-  useEffect(() => {
-    const loadAvailableDates = async () => {
-      const dates = await getAvailableDates();
-      setAvailableDates(dates);
+      // Получаем текущую дату
+      let currentDateObj;
+      if (dateKey) {
+        const [day, month, year] = dateKey.split("-");
+        currentDateObj = new Date(year, month - 1, day);
+      } else {
+        currentDateObj = new Date();
+      }
 
-      // Проверяем, была ли сохранена последняя выбранная дата
-      const lastSelectedDate = localStorage.getItem("lastSelectedDate");
-      if (lastSelectedDate && dates.includes(lastSelectedDate)) {
-        const [day, month, year] = lastSelectedDate.split("-");
-        const date = new Date(year, month - 1, day);
+      // Переключаем на следующий/предыдущий календарный день
+      const newDate = new Date(currentDateObj);
+      newDate.setDate(currentDateObj.getDate() + direction);
+
+      // Форматируем новую дату
+      const newDateKey = formatDate(newDate);
+
+      // Проверяем, есть ли расписание на эту дату
+      if (availableDates.includes(newDateKey)) {
+        // Если есть - загружаем
+        loadScheduleByDate(newDate, true);
+      } else {
+        // Если нет - ищем ближайшую доступную дату в этом направлении
+        let searchDate = new Date(newDate);
+        let found = false;
+        let steps = 1;
+        const maxSteps = 30; // Максимальное количество дней для поиска
+
+        while (steps <= maxSteps && !found) {
+          searchDate.setDate(currentDateObj.getDate() + direction * steps);
+          const searchDateKey = formatDate(searchDate);
+
+          if (availableDates.includes(searchDateKey)) {
+            loadScheduleByDate(searchDate, true);
+            found = true;
+            break;
+          }
+          steps++;
+        }
+
+        // Если ничего не найдено в пределах maxSteps дней
+        if (!found) {
+          const directionText = direction === 1 ? "вперед" : "назад";
+          alert(
+            `Нет доступного расписания ${directionText} в ближайшие ${maxSteps} дней`,
+          );
+        }
+      }
+    },
+    [availableDates, dateKey, loadScheduleByDate],
+  );
+  // Выбор даты из календаря
+  const selectDate = useCallback(
+    (date) => {
+      const dateKey = formatDate(date);
+      if (availableDates.includes(dateKey)) {
         loadScheduleByDate(date, true);
         setCurrentDate(date);
-      }
-    };
-
-    loadAvailableDates();
-  }, [loadScheduleByDate]);
-
-  // Обработчики нажатия на дату
-  const handleDatePressStart = () => {
-    isLongPress.current = false;
-    longPressTimer.current = setTimeout(() => {
-      isLongPress.current = true;
-      setDatePickerModal(true);
-    }, 500); // 500ms для определения долгого нажатия
-  };
-
-  const handleDatePressEnd = () => {
-    if (longPressTimer.current) {
-      clearTimeout(longPressTimer.current);
-    }
-
-    if (!isLongPress.current) {
-      // Короткое нажатие - переключение сегодня/завтра
-      const today = new Date();
-      const currentDateKey = dateKey ? dateKey.split("-") : null;
-
-      if (currentDateKey) {
-        const [day, month, year] = currentDateKey;
-        const currentDateObj = new Date(year, month - 1, day);
-        const todayDateObj = new Date(
-          today.getFullYear(),
-          today.getMonth(),
-          today.getDate(),
-        );
-
-        if (currentDateObj.getTime() === todayDateObj.getTime()) {
-          // Если сейчас сегодня, переключаем на завтра
-          loadCurrentSchedule("tomorrow");
-        } else {
-          // Иначе переключаем на сегодня
-          loadCurrentSchedule("today");
-        }
+        setDatePickerModal(false);
       } else {
-        loadCurrentSchedule("today");
+        alert(`Расписание на ${formatDisplayDate(date)} не опубликовано`);
       }
-    }
-
-    isLongPress.current = false;
-  };
-
-  // Навигация по дням
-  const navigateDay = (direction) => {
-    const newDate = new Date(currentDate);
-    newDate.setDate(currentDate.getDate() + direction);
-
-    const newDateKey = formatDate(newDate);
-
-    // Если на следующий/предыдущий день есть расписание
-    if (availableDates.includes(newDateKey)) {
-      loadScheduleByDate(newDate, true);
-      setCurrentDate(newDate);
-      return;
-    }
-
-    // Если нет, ищем ближайший доступный день в этом направлении
-    let searchDate = new Date(newDate);
-    let found = false;
-    let steps = 1;
-    const maxSteps = 30; // Максимальное количество дней для поиска
-
-    while (steps <= maxSteps && !found) {
-      searchDate.setDate(currentDate.getDate() + direction * steps);
-      const searchDateKey = formatDate(searchDate);
-
-      if (availableDates.includes(searchDateKey)) {
-        loadScheduleByDate(searchDate, true);
-        setCurrentDate(searchDate);
-        found = true;
-        break;
-      }
-      steps++;
-    }
-
-    // Если ничего не найдено в пределах maxSteps дней
-    if (!found) {
-      const directionText = direction === 1 ? "вперед" : "назад";
-      alert(
-        `Нет доступного расписания ${directionText} в ближайшие ${maxSteps} дней`,
-      );
-    }
-  };
-
-  // Выбор даты из календаря
-  const selectDate = (date) => {
-    const dateKey = formatDate(date);
-    if (availableDates.includes(dateKey)) {
-      loadScheduleByDate(date, true);
-      setCurrentDate(date);
-      setDatePickerModal(false);
-    } else {
-      alert(`Расписание на ${formatDisplayDate(date)} не опубликовано`);
-    }
-  };
+    },
+    [availableDates, loadScheduleByDate],
+  );
 
   // Получение дней для календаря
   const getDaysInMonth = (year, month) => {
@@ -392,6 +309,34 @@ function App() {
     newDate.setMonth(currentDate.getMonth() + delta);
     setCurrentDate(newDate);
   };
+
+  // Загрузка доступных дат
+  useEffect(() => {
+    const loadAvailableDates = async () => {
+      const dates = await getAvailableDates();
+      setAvailableDates(dates);
+
+      // Проверяем, была ли сохранена последняя выбранная дата
+      const lastSelectedDate = localStorage.getItem("lastSelectedDate");
+      if (lastSelectedDate && dates.includes(lastSelectedDate)) {
+        const [day, month, year] = lastSelectedDate.split("-");
+        const date = new Date(year, month - 1, day);
+        loadScheduleByDate(date, true);
+        setCurrentDate(date);
+      } else if (dates.length > 0) {
+        // Если нет сохраненной даты, загружаем первую доступную
+        const [day, month, year] = dates[0].split("-");
+        const date = new Date(year, month - 1, day);
+        loadScheduleByDate(date, true);
+        setCurrentDate(date);
+      } else {
+        // Если нет доступных дат, показываем сообщение
+        setDateSchedule("Нет доступного расписания");
+      }
+    };
+
+    loadAvailableDates();
+  }, [loadScheduleByDate]);
 
   // Слушаем изменения в расписании в реальном времени
   useEffect(() => {
@@ -448,7 +393,7 @@ function App() {
     }
   }, [schedule, myCabinet, filterScheduleByCabinet]);
 
-  // Остальные функции (saveCommonAltNamings, etc.) остаются без изменений
+  // Остальные функции (saveCommonAltNamings, etc.)
   const saveCommonAltNamings = async (altNamings) => {
     if (!user) {
       localStorage.setItem(ALT_NAMINGS_DB_KEY, JSON.stringify(altNamings));
@@ -881,27 +826,20 @@ function App() {
         {user ? <ImageLogo src={user.photoURL} /> : <ImageLogo src={inco} />}
 
         <DateNavigationWrapper>
-          {hasUsedDatePicker && (
-            <NavButton onClick={() => navigateDay(-1)} theme={theme}>
-              ◀
-            </NavButton>
-          )}
+          <NavButton onClick={() => navigateDay(-1)} theme={theme}>
+            ◀
+          </NavButton>
 
           <DateSchedule
-            onMouseDown={handleDatePressStart}
-            onMouseUp={handleDatePressEnd}
-            onTouchStart={handleDatePressStart}
-            onTouchEnd={handleDatePressEnd}
+            onClick={() => setDatePickerModal(true)}
             style={{ cursor: "pointer", userSelect: "none" }}
           >
             {isLoading ? "Загрузка..." : dateSchedule}
           </DateSchedule>
 
-          {hasUsedDatePicker && (
-            <NavButton onClick={() => navigateDay(1)} theme={theme}>
-              ▶
-            </NavButton>
-          )}
+          <NavButton onClick={() => navigateDay(1)} theme={theme}>
+            ▶
+          </NavButton>
         </DateNavigationWrapper>
 
         {!user ? (
