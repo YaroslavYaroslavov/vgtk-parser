@@ -1,7 +1,5 @@
-import { getVGTK } from "../../helpers/getVGTK";
 import { parseDateLabelToDDMMYYYY } from "../../helpers/parseDateLabelToDDMMYYYY";
-import { useEffect, useState, useCallback, useRef } from "react";
-import { urlToday, urlTommorow } from "../../consts/url";
+import { useEffect, useState, useCallback, useRef, useMemo } from "react";
 import { CustomInput } from "../Inputs";
 import { CustomSelect } from "../Selects";
 import { Checkbox } from "../Checkboxes";
@@ -38,36 +36,34 @@ import {
   NavButton,
   DatePickerContainer,
   DatePickerHeader,
-  DatePickerDay,
   DatePickerWeekday,
   DatePickerGrid,
+  DatePickerDay,
   DatePickerDayButton,
   AvailableDateBadge,
 } from "./styled";
 import { ToggleButton } from "../ToggleButton";
 import { useAuthState } from "react-firebase-hooks/auth";
-import { auth } from "../../firebaseConfig/firebase";
+import { auth, db } from "../../firebaseConfig/firebase";
 import { onValue, ref, set, get, update } from "firebase/database";
 import { GoogleAuthProvider, signInWithPopup, signOut } from "firebase/auth";
-import { db } from "../../firebaseConfig/firebase";
 import { ScheduleTable } from "../HoursAccounting";
 import { AllGroupsSchedule } from "../AllGroupsSchedule";
 import TelegramLink from "../TelegramLink";
+import AutoHoursAccounting from "../AutoHoursAccounting";
 
 const provider = new GoogleAuthProvider();
-
-// Ключ для хранения общих альтернативных названий в БД
 const ALT_NAMINGS_DB_KEY = "commonAltNamings";
 
-// Функция для форматирования даты
+// ---- Утилиты вне компонента (стабильные ссылки) ----
+const normalize = (s) => (s || "").toLowerCase().trim();
+
 const formatDate = (date) => {
   const day = String(date.getDate()).padStart(2, "0");
   const month = String(date.getMonth() + 1).padStart(2, "0");
-  const year = date.getFullYear();
-  return `${day}-${month}-${year}`;
+  return `${day}-${month}-${date.getFullYear()}`;
 };
 
-// Функция для форматирования отображаемой даты
 const formatDisplayDate = (date) => {
   const months = [
     "января",
@@ -92,112 +88,103 @@ const formatDisplayDate = (date) => {
     "пятница",
     "суббота",
   ];
-
   return `${date.getDate()} ${months[date.getMonth()]} ${date.getFullYear()} года (${weekdays[date.getDay()].toUpperCase()})`;
 };
 
-// Функция для получения списка доступных дат из Firebase
-const getAvailableDates = async () => {
-  try {
-    const schedulesRef = ref(db, "schedules_by_date");
-    const snapshot = await get(schedulesRef);
-
-    if (snapshot.exists()) {
-      const dates = Object.keys(snapshot.val());
-      return dates.sort(); // Сортируем по возрастанию
-    }
-    return [];
-  } catch (error) {
-    console.error("Ошибка получения доступных дат:", error);
-    return [];
-  }
+const getDaysInMonth = (year, month) => {
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const firstDayOfMonth = new Date(year, month, 1).getDay();
+  const days = [];
+  const offset = firstDayOfMonth === 0 ? 6 : firstDayOfMonth - 1;
+  for (let i = 0; i < offset; i++) days.push(null);
+  for (let i = 1; i <= daysInMonth; i++) days.push(new Date(year, month, i));
+  return days;
 };
 
-// Функция для получения расписания по дате
+const WEEKDAYS = ["ПН", "ВТ", "СР", "ЧТ", "ПТ", "СБ", "ВС"];
+
+// ---- Firebase helpers ----
 const getScheduleByDate = async (dateKey) => {
   try {
-    const scheduleRef = ref(db, `schedules_by_date/${dateKey}`);
-    const snapshot = await get(scheduleRef);
-
-    if (snapshot.exists()) {
-      return snapshot.val();
-    }
-    return null;
-  } catch (error) {
-    console.error("Ошибка получения расписания по дате:", error);
+    const snap = await get(ref(db, `schedules_by_date/${dateKey}`));
+    return snap.exists() ? snap.val() : null;
+  } catch (e) {
+    console.error("Ошибка getScheduleByDate:", e);
     return null;
   }
 };
 
 function App() {
+  // ---- UI state ----
   const [modalActive, setModalActive] = useState(false);
   const [advancedModalActive, setAdvancedModalActive] = useState(false);
+  const [accountingHoursModal, setAccountingHoursModal] = useState(false);
+  const [autoHoursModal, setAutoHoursModal] = useState(false); // 🆕
+  const [telegramLinkModal, setTelegramLinkModal] = useState(false);
+  const [datePickerModal, setDatePickerModal] = useState(false);
+  const [isAddingFromModal, setIsAddingFromModal] = useState(false);
+  const [showTarification, setShowTarification] = useState(false);
+  const [isCabinetMode, setIsCabinetMode] = useState(false);
+  const [viewMode, setViewMode] = useState("my");
+
+  // ---- Schedule state ----
   const [schedule, setSchedule] = useState([]);
-  const [mySchedule, setMySchedule] = useState([]);
-  const [myCabinetLectures, setMyCabinetLectures] = useState([]);
   const [dateSchedule, setDateSchedule] = useState("Пожалуйста подождите");
   const [dateKey, setDateKey] = useState(null);
+  const [availableDates, setAvailableDates] = useState([]);
+  const [currentDate, setCurrentDate] = useState(new Date());
+  const [isLoading, setIsLoading] = useState(false);
+
+  // ---- Form state ----
   const [inputLessonValue, setInputLessonValue] = useState("");
   const [selectGroupValue, setSelectGroupValue] = useState("");
   const [checkboxLect, setCheckboxLect] = useState(false);
-  const [accountingHoursModal, setAccountingHoursModal] = useState(false);
   const [checkboxLab, setCheckboxLab] = useState(false);
-  const [loadHours, setLoadHours] = useState(0);
-  const [fetchedHours, setFetchedHours] = useState(0);
+  const [cabinetInputValue, setCabinetInputValue] = useState("");
+  const [altLessonNameInputValue, setAltLessonNameInputValue] = useState("");
+
+  // ---- Domain state ----
   const [userTarification, setUserTarification] = useState(
-    JSON.parse(localStorage.getItem("userTarification")) || [],
+    () => JSON.parse(localStorage.getItem("userTarification")) || [],
   );
   const [commonAltNamings, setCommonAltNamings] = useState([]);
-  const [showTarification, setShowTarification] = useState(false);
-  const [isAddingFromModal, setIsAddingFromModal] = useState(false);
-  const [isCabinetMode, setIsCabinetMode] = useState(false);
-  const [cabinetInputValue, setCabinetInputValue] = useState("");
+  const [myCabinet, setMyCabinet] = useState(
+    () => localStorage.getItem("userCabinet") || null,
+  );
+  const [fetchedHours, setFetchedHours] = useState(0);
+  const [loadHours, setLoadHours] = useState(0);
+
+  // ---- Modal context state ----
   const [currentGroupModal, setCurrentGroupModal] = useState("");
   const [currentLessonModal, setCurrentLessonModal] = useState("");
-  const [telegramLinkModal, setTelegramLinkModal] = useState("");
-  const [altLessonNameInputValue, setAltLessonNameInputValue] = useState("");
-  const [myCabinet, setMyCabinet] = useState(
-    localStorage.getItem("userCabinet") || null,
-  );
   const [currentLessonNameFromModal, setCurrentLessonNameFromModal] =
     useState("");
-  const [viewMode, setViewMode] = useState("my");
-  const [isLoading, setIsLoading] = useState(false);
-  const [availableDates, setAvailableDates] = useState([]);
-  const [datePickerModal, setDatePickerModal] = useState(false);
-  const [currentDate, setCurrentDate] = useState(new Date());
 
-  const [user, loading] = useAuthState(auth);
+  const [user] = useAuthState(auth);
   const { theme, setTheme } = useTheme();
 
-  // Функция для загрузки расписания по дате
+  // ============================================================
+  //  ЗАГРУЗКА РАСПИСАНИЯ ПО ДАТЕ
+  // ============================================================
   const loadScheduleByDate = useCallback(
     async (targetDate, isUserSelected = false) => {
       setIsLoading(true);
       try {
-        const dateKey = formatDate(targetDate);
-        const scheduleData = await getScheduleByDate(dateKey);
-
-        if (scheduleData && scheduleData.schedule) {
-          setSchedule(scheduleData.schedule);
-          setDateSchedule(scheduleData.date || formatDisplayDate(targetDate));
-          setDateKey(dateKey);
+        const dKey = formatDate(targetDate);
+        const data = await getScheduleByDate(dKey);
+        if (data && data.schedule) {
+          setSchedule(data.schedule);
+          setDateSchedule(data.date || formatDisplayDate(targetDate));
+          setDateKey(dKey);
           setCurrentDate(targetDate);
-          console.log(
-            `✅ Расписание на ${dateKey} загружено, групп: ${scheduleData.schedule.length}`,
-          );
-
-          if (isUserSelected) {
-            localStorage.setItem("lastSelectedDate", dateKey);
-          }
+          if (isUserSelected) localStorage.setItem("lastSelectedDate", dKey);
         } else {
-          console.log(`❌ Расписание на ${dateKey} не найдено`);
           setSchedule([]);
           setDateSchedule(`Нет расписания на ${formatDisplayDate(targetDate)}`);
           setDateKey(null);
         }
-      } catch (error) {
-        console.error("Ошибка при загрузке расписания:", error);
+      } catch (e) {
+        console.error("Ошибка загрузки расписания:", e);
         setSchedule([]);
         setDateSchedule("Ошибка загрузки расписания");
       } finally {
@@ -207,72 +194,77 @@ function App() {
     [],
   );
 
+  // Подписка на список доступных дат (реактивно при появлении новых)
+  useEffect(() => {
+    const refDates = ref(db, "schedules_by_date");
+    const unsub = onValue(refDates, (snap) => {
+      const dates = snap.exists() ? Object.keys(snap.val()).sort() : [];
+      setAvailableDates(dates);
+
+      // первичный выбор даты при первом получении
+      setDateKey((curKey) => {
+        if (curKey) return curKey; // уже выбрана — не трогаем
+        const last = localStorage.getItem("lastSelectedDate");
+        let pick = null;
+        if (last && dates.includes(last)) pick = last;
+        else if (dates.length > 0) pick = dates[0];
+        if (pick) {
+          const [d, m, y] = pick.split("-");
+          loadScheduleByDate(new Date(y, m - 1, d), Boolean(last));
+        } else {
+          setDateSchedule("Нет доступного расписания");
+        }
+        return curKey;
+      });
+    });
+    return () => unsub();
+  }, [loadScheduleByDate]);
+
+  // Слушатель изменений выбранного дня
+  useEffect(() => {
+    if (!dateKey) return;
+    const unsub = onValue(ref(db, `schedules_by_date/${dateKey}`), (snap) => {
+      if (snap.exists() && snap.val().schedule)
+        setSchedule(snap.val().schedule);
+    });
+    return () => unsub();
+  }, [dateKey]);
+
   // Навигация по дням
-  // Навигация по дням (по календарным дням, а не по списку доступных)
   const navigateDay = useCallback(
     (direction) => {
       if (availableDates.length === 0) {
         alert("Нет доступных дат с расписанием");
         return;
       }
+      const baseDate = dateKey
+        ? (() => {
+            const [d, m, y] = dateKey.split("-");
+            return new Date(y, m - 1, d);
+          })()
+        : new Date();
 
-      // Получаем текущую дату
-      let currentDateObj;
-      if (dateKey) {
-        const [day, month, year] = dateKey.split("-");
-        currentDateObj = new Date(year, month - 1, day);
-      } else {
-        currentDateObj = new Date();
-      }
-
-      // Переключаем на следующий/предыдущий календарный день
-      const newDate = new Date(currentDateObj);
-      newDate.setDate(currentDateObj.getDate() + direction);
-
-      // Форматируем новую дату
-      const newDateKey = formatDate(newDate);
-
-      // Проверяем, есть ли расписание на эту дату
-      if (availableDates.includes(newDateKey)) {
-        // Если есть - загружаем
-        loadScheduleByDate(newDate, true);
-      } else {
-        // Если нет - ищем ближайшую доступную дату в этом направлении
-        let searchDate = new Date(newDate);
-        let found = false;
-        let steps = 1;
-        const maxSteps = 30; // Максимальное количество дней для поиска
-
-        while (steps <= maxSteps && !found) {
-          searchDate.setDate(currentDateObj.getDate() + direction * steps);
-          const searchDateKey = formatDate(searchDate);
-
-          if (availableDates.includes(searchDateKey)) {
-            loadScheduleByDate(searchDate, true);
-            found = true;
-            break;
-          }
-          steps++;
-        }
-
-        // Если ничего не найдено в пределах maxSteps дней
-        if (!found) {
-          const directionText = direction === 1 ? "вперед" : "назад";
-          alert(
-            `Нет доступного расписания ${directionText} в ближайшие ${maxSteps} дней`,
-          );
+      for (let step = 1; step <= 30; step++) {
+        const candidate = new Date(baseDate);
+        candidate.setDate(baseDate.getDate() + direction * step);
+        const cKey = formatDate(candidate);
+        if (availableDates.includes(cKey)) {
+          loadScheduleByDate(candidate, true);
+          return;
         }
       }
+      alert(
+        `Нет расписания ${direction === 1 ? "вперёд" : "назад"} в ближайшие 30 дней`,
+      );
     },
     [availableDates, dateKey, loadScheduleByDate],
   );
-  // Выбор даты из календаря
+
   const selectDate = useCallback(
     (date) => {
-      const dateKey = formatDate(date);
-      if (availableDates.includes(dateKey)) {
+      const dKey = formatDate(date);
+      if (availableDates.includes(dKey)) {
         loadScheduleByDate(date, true);
-        setCurrentDate(date);
         setDatePickerModal(false);
       } else {
         alert(`Расписание на ${formatDisplayDate(date)} не опубликовано`);
@@ -281,397 +273,296 @@ function App() {
     [availableDates, loadScheduleByDate],
   );
 
-  // Получение дней для календаря
-  const getDaysInMonth = (year, month) => {
-    const daysInMonth = new Date(year, month + 1, 0).getDate();
-    const firstDayOfMonth = new Date(year, month, 1).getDay();
-    const days = [];
-
-    // Добавляем пустые дни для выравнивания
-    for (
-      let i = 0;
-      i < (firstDayOfMonth === 0 ? 6 : firstDayOfMonth - 1);
-      i++
-    ) {
-      days.push(null);
-    }
-
-    // Добавляем дни месяца
-    for (let i = 1; i <= daysInMonth; i++) {
-      days.push(new Date(year, month, i));
-    }
-
-    return days;
-  };
-
-  const changeMonth = (delta) => {
-    const newDate = new Date(currentDate);
-    newDate.setMonth(currentDate.getMonth() + delta);
-    setCurrentDate(newDate);
-  };
-
-  // Загрузка доступных дат
-  useEffect(() => {
-    const loadAvailableDates = async () => {
-      const dates = await getAvailableDates();
-      setAvailableDates(dates);
-
-      // Проверяем, была ли сохранена последняя выбранная дата
-      const lastSelectedDate = localStorage.getItem("lastSelectedDate");
-      if (lastSelectedDate && dates.includes(lastSelectedDate)) {
-        const [day, month, year] = lastSelectedDate.split("-");
-        const date = new Date(year, month - 1, day);
-        loadScheduleByDate(date, true);
-        setCurrentDate(date);
-      } else if (dates.length > 0) {
-        // Если нет сохраненной даты, загружаем первую доступную
-        const [day, month, year] = dates[0].split("-");
-        const date = new Date(year, month - 1, day);
-        loadScheduleByDate(date, true);
-        setCurrentDate(date);
-      } else {
-        // Если нет доступных дат, показываем сообщение
-        setDateSchedule("Нет доступного расписания");
-      }
-    };
-
-    loadAvailableDates();
-  }, [loadScheduleByDate]);
-
-  // Слушаем изменения в расписании в реальном времени
-  useEffect(() => {
-    if (!dateKey) return;
-
-    const dateRef = ref(db, `schedules_by_date/${dateKey}`);
-    const unsubscribe = onValue(
-      dateRef,
-      (snapshot) => {
-        if (snapshot.exists() && snapshot.val().schedule) {
-          console.log(
-            `🔄 Расписание на дату ${dateKey} обновилось в реальном времени`,
-          );
-          setSchedule(snapshot.val().schedule);
-        }
-      },
-      (error) => {
-        console.error("Ошибка при подписке на обновления расписания:", error);
-      },
-    );
-
-    return () => unsubscribe();
-  }, [dateKey]);
-
-  // Фильтрация расписания по кабинету
-  const filterScheduleByCabinet = useCallback((scheduleData, cabinet) => {
-    const cabinetLessons = [];
-
-    scheduleData.forEach((group) => {
-      group.lessons.forEach((lesson) => {
-        if (lesson.cabinet && lesson.cabinet.includes(cabinet)) {
-          cabinetLessons.push({
-            ...lesson,
-            groupName: group.groupName,
-          });
-        }
-      });
+  const changeMonth = useCallback((delta) => {
+    setCurrentDate((d) => {
+      const nd = new Date(d);
+      nd.setMonth(d.getMonth() + delta);
+      return nd;
     });
-
-    cabinetLessons.sort((a, b) => {
-      const na = parseFloat(a?.lessonNumber) || 0;
-      const nb = parseFloat(b?.lessonNumber) || 0;
-      return na - nb;
-    });
-
-    return cabinetLessons;
   }, []);
 
-  // Обновляем расписание по кабинету
-  useEffect(() => {
-    if (myCabinet && schedule.length > 0) {
-      const filtered = filterScheduleByCabinet(schedule, myCabinet);
-      setMyCabinetLectures(filtered);
-    }
-  }, [schedule, myCabinet, filterScheduleByCabinet]);
-
-  // Остальные функции (saveCommonAltNamings, etc.)
-  const saveCommonAltNamings = async (altNamings) => {
-    if (!user) {
-      localStorage.setItem(ALT_NAMINGS_DB_KEY, JSON.stringify(altNamings));
-    } else {
-      try {
-        await set(ref(db, `${ALT_NAMINGS_DB_KEY}`), altNamings);
-      } catch (error) {
-        console.error(
-          "Ошибка сохранения общих альтернативных названий:",
-          error,
-        );
-      }
-    }
-    setCommonAltNamings(altNamings);
-  };
-
-  // Загрузка общих альтернативных названий
-  useEffect(() => {
-    const loadCommonAltNamings = async () => {
-      if (user) {
-        try {
-          const snapshot = await get(ref(db, `${ALT_NAMINGS_DB_KEY}`));
-          if (snapshot.exists()) {
-            setCommonAltNamings(snapshot.val());
-          } else {
-            const localAltNamings =
-              JSON.parse(localStorage.getItem(ALT_NAMINGS_DB_KEY)) || [];
-            if (localAltNamings.length > 0) {
-              await saveCommonAltNamings(localAltNamings);
-            } else {
-              setCommonAltNamings([]);
-            }
-          }
-        } catch (error) {
-          console.error(
-            "Ошибка загрузки общих альтернативных названий:",
-            error,
-          );
-        }
-      } else {
-        const localAltNamings =
-          JSON.parse(localStorage.getItem(ALT_NAMINGS_DB_KEY)) || [];
-        setCommonAltNamings(localAltNamings);
-      }
-    };
-    loadCommonAltNamings();
-  }, [user]);
-
-  const saveUserTarification = (userTarification) => {
-    if (!user) {
-      localStorage.setItem(
-        "userTarification",
-        JSON.stringify(userTarification),
-      );
-    } else {
-      set(
-        ref(db, `users/${auth?.currentUser?.uid}/tarification`),
-        userTarification,
-      );
-    }
-  };
-
-  const saveUserCabinet = (userCabinet) => {
-    if (!user) {
-      localStorage.setItem("userCabinet", userCabinet);
-    } else {
-      update(ref(db, `users/${auth?.currentUser?.uid}/userInfo`), {
-        cabinet: userCabinet,
-      });
-    }
-  };
-
-  const onLessonInputChange = (event) => {
-    setInputLessonValue(event.target.value);
-  };
-
-  const onAltLessonNameInputChange = (event) => {
-    setAltLessonNameInputValue(event.target.value);
-  };
-
-  const handleOpenModal = useCallback((groupName) => {
-    setModalActive(true);
-    setCurrentGroupModal(groupName);
-  }, []);
-
-  const handleOpenLinkModal = useCallback(() => {
-    setTelegramLinkModal(true);
-  }, []);
-
-  const handleOpenAdvancedModal = useCallback(
-    (lessonId) => {
-      setAdvancedModalActive(true);
-      setCurrentLessonModal(userTarification.find((el) => el.id === lessonId));
-    },
-    [userTarification],
+  // Дни календаря
+  const daysInMonth = useMemo(
+    () => getDaysInMonth(currentDate.getFullYear(), currentDate.getMonth()),
+    [currentDate],
   );
 
-  const handleCheckboxLab = () => {
-    setCheckboxLab((prev) => !prev);
-  };
-
-  const handleCheckboxLect = () => {
-    setCheckboxLect((prev) => !prev);
-  };
-
-  const handleSelectGroup = (event) => {
-    setSelectGroupValue(event.target.value);
-  };
-
-  const handleCabinetInputChange = (event) => {
-    setCabinetInputValue(event.target.value);
-  };
-
-  const handleChangeTheme = useCallback(() => {
-    theme === "light" ? setTheme("dark") : setTheme("light");
-  }, [setTheme, theme]);
-
-  const isDuplicateLesson = (lesson) => {
-    return userTarification.some(
-      (group) =>
-        group.groupName.toLowerCase().trim() ===
-          lesson.groupName.toLowerCase().trim() &&
-        group.lesson.toLowerCase().trim() ===
-          lesson.lessonName.toLowerCase().trim(),
-    );
-  };
-
-  const getAltNamingsForLesson = (lessonName) => {
-    return commonAltNamings
-      .filter(
-        (item) =>
-          item.lessonName.toLowerCase().trim() ===
-          lessonName.toLowerCase().trim(),
-      )
-      .flatMap((item) => item.altNaming);
-  };
-
-  const addAlternativeName = async (currentLessonModal, altName) => {
-    const lessonName = currentLessonModal.lesson;
-    const existingEntry = commonAltNamings.find(
-      (item) =>
-        item.lessonName.toLowerCase().trim() ===
-        lessonName.toLowerCase().trim(),
-    );
-
-    let updatedAltNamings;
-    if (existingEntry) {
-      if (
-        existingEntry.altNaming.some(
-          (el) => el.toLowerCase().trim() === altName.toLowerCase().trim(),
-        )
-      ) {
-        alert("Название уже существует");
-        return;
+  // ============================================================
+  //  ALT NAMINGS
+  // ============================================================
+  const saveCommonAltNamings = useCallback(
+    async (altNamings) => {
+      if (!user) {
+        localStorage.setItem(ALT_NAMINGS_DB_KEY, JSON.stringify(altNamings));
+      } else {
+        try {
+          await set(ref(db, ALT_NAMINGS_DB_KEY), altNamings);
+        } catch (e) {
+          console.error("Ошибка сохранения altNamings:", e);
+        }
       }
-      updatedAltNamings = commonAltNamings.map((item) =>
-        item.lessonName.toLowerCase().trim() === lessonName.toLowerCase().trim()
-          ? { ...item, altNaming: [...item.altNaming, altName] }
-          : item,
+      setCommonAltNamings(altNamings);
+    },
+    [user],
+  );
+
+  useEffect(() => {
+    const load = async () => {
+      if (user) {
+        try {
+          const snap = await get(ref(db, ALT_NAMINGS_DB_KEY));
+          if (snap.exists()) setCommonAltNamings(snap.val());
+          else {
+            const local =
+              JSON.parse(localStorage.getItem(ALT_NAMINGS_DB_KEY)) || [];
+            if (local.length > 0) await saveCommonAltNamings(local);
+            else setCommonAltNamings([]);
+          }
+        } catch (e) {
+          console.error("Ошибка загрузки altNamings:", e);
+        }
+      } else {
+        setCommonAltNamings(
+          JSON.parse(localStorage.getItem(ALT_NAMINGS_DB_KEY)) || [],
+        );
+      }
+    };
+    load();
+  }, [user, saveCommonAltNamings]);
+
+  // мемоизированная функция получения альт. названий
+  const getAltNamingsForLesson = useCallback(
+    (lessonName) => {
+      const target = normalize(lessonName);
+      return commonAltNamings
+        .filter((it) => normalize(it.lessonName) === target)
+        .flatMap((it) => it.altNaming);
+    },
+    [commonAltNamings],
+  );
+
+  // ============================================================
+  //  TARIFICATION & USER INFO
+  // ============================================================
+  const saveUserTarification = useCallback(
+    (tarif) => {
+      if (!user) {
+        localStorage.setItem("userTarification", JSON.stringify(tarif));
+      } else {
+        set(ref(db, `users/${auth?.currentUser?.uid}/tarification`), tarif);
+      }
+    },
+    [user],
+  );
+
+  const saveUserCabinet = useCallback(
+    (cab) => {
+      if (!user) localStorage.setItem("userCabinet", cab);
+      else
+        update(ref(db, `users/${auth?.currentUser?.uid}/userInfo`), {
+          cabinet: cab,
+        });
+    },
+    [user],
+  );
+
+  // Загрузка тарификации и кабинета
+  useEffect(() => {
+    if (!user) {
+      setUserTarification(
+        JSON.parse(localStorage.getItem("userTarification")) || [],
       );
-    } else {
-      updatedAltNamings = [
-        ...commonAltNamings,
-        {
-          lessonName: lessonName,
-          altNaming: [altName],
-        },
-      ];
+      return;
     }
+    const uid = auth.currentUser?.uid;
+    if (!uid) return;
 
-    await saveCommonAltNamings(updatedAltNamings);
-    filterSchedule();
-  };
-
-  const addGroupFromModal = (lesson) => {
-    if (isDuplicateLesson(lesson)) {
-      alert(
-        'Группа с таким занятием уже существует. Удалите её в разделе "Редактировать" и внесите в ручном режиме.',
-      );
-    } else {
-      setCurrentLessonNameFromModal(lesson.lessonName);
-      setIsAddingFromModal(true);
-    }
-  };
-
-  const getHours = () => {
-    get(ref(db, `users/${auth?.currentUser?.uid}/hours`))
-      .then((snapshot) => {
-        if (snapshot.exists()) {
-          setFetchedHours(snapshot.val());
-        } else {
-          console.log("No data available");
+    get(ref(db, `users/${uid}/tarification`))
+      .then((snap) => {
+        if (snap.exists()) setUserTarification(snap.val());
+        else {
+          const local = JSON.parse(
+            localStorage.getItem("userTarification") || "[]",
+          );
+          if (local.length) set(ref(db, `users/${uid}/tarification`), local);
         }
       })
-      .catch((error) => {
-        console.error(error);
-      });
-  };
+      .catch(console.error);
 
-  const addGroup = () => {
-    const isDuplicateLesson = userTarification.some(
-      (group) =>
-        group.groupName.toLowerCase().trim() ===
-          selectGroupValue.toLowerCase().trim() &&
-        group.lesson.toLowerCase().trim() ===
-          inputLessonValue.toLowerCase().trim(),
-    );
+    get(ref(db, `users/${uid}/userInfo`))
+      .then((snap) => {
+        if (snap.exists()) setMyCabinet(snap.val().cabinet);
+        else if (localStorage.getItem("userCabinet"))
+          set(ref(db, `users/${uid}/userInfo`), {
+            cabinet: localStorage.getItem("userCabinet"),
+          });
+      })
+      .catch(console.error);
+  }, [user]);
 
-    if (isDuplicateLesson) {
-      console.log("Группа с таким названием и уроком уже существует!");
-    } else {
-      const newGroup = {
-        id: uuidv4(),
-        groupName: selectGroupValue,
-        lesson: inputLessonValue,
-        lecture: checkboxLect,
-        labs: checkboxLab,
-      };
+  // Слушатель часов
+  useEffect(() => {
+    const uid = auth?.currentUser?.uid;
+    if (!uid) return;
+    const unsub = onValue(ref(db, `users/${uid}/hours`), (snap) => {
+      setFetchedHours(snap.exists() ? snap.val() : null);
+    });
+    return () => unsub();
+  }, [user]);
 
-      setUserTarification((prev) => [...prev, newGroup]);
-      saveUserTarification([...userTarification, newGroup]);
-      filterSchedule();
-    }
-  };
-
-  const handleFormSubmit = (event, callback) => {
-    event.preventDefault();
-    callback();
-  };
-
-  const filterSchedule = useCallback(() => {
-    const newSchedule = [];
+  // ============================================================
+  //  ВЫЧИСЛЕНИЕ mySchedule (вместо useState + ручных вызовов)
+  // ============================================================
+  const mySchedule = useMemo(() => {
+    if (!schedule || schedule.length === 0) return [];
+    const out = [];
     let idCounter = 0;
-
-    const normalize = (s) => (s || "").toLowerCase().trim();
 
     const scheduleByGroup = new Map(
       schedule.map((s) => [normalize(s.groupName || ""), s]),
     );
 
     userTarification.forEach((item) => {
-      const { groupName, lesson, labs, lecture } = item;
-      const groupKey = normalize(groupName);
-      const scheduleItem = scheduleByGroup.get(groupKey);
-      if (!scheduleItem) return;
+      const sched = scheduleByGroup.get(normalize(item.groupName));
+      if (!sched) return;
+      const altList = getAltNamingsForLesson(item.lesson);
+      const mainNorm = normalize(item.lesson);
 
-      const altNamesForLesson = getAltNamingsForLesson(lesson);
-
-      scheduleItem.lessons.forEach((l) => {
+      sched.lessons.forEach((l) => {
         const lessonNameNorm = normalize(l?.lessonName);
-        const matchesMainLesson = lessonNameNorm === normalize(lesson);
-        const matchesAltNaming = altNamesForLesson.some(
-          (alt) => lessonNameNorm === normalize(alt),
-        );
         const isLab = !!l.isLab;
-        const typeMatches = (labs && isLab) || (!isLab && lecture);
-
-        if ((matchesMainLesson || matchesAltNaming) && typeMatches) {
-          const lessonToAdd = { ...l, lessonName: lesson };
-          lessonToAdd.id = `${++idCounter}`;
-          newSchedule.push(lessonToAdd);
+        const nameOk =
+          lessonNameNorm === mainNorm ||
+          altList.some((a) => normalize(a) === lessonNameNorm);
+        const typeOk = (item.labs && isLab) || (!isLab && item.lecture);
+        if (nameOk && typeOk) {
+          out.push({ ...l, lessonName: item.lesson, id: `${++idCounter}` });
         }
       });
     });
 
-    newSchedule.sort((a, b) => {
+    out.sort((a, b) => {
       const na = parseFloat(a?.lessonNumber) || 0;
       const nb = parseFloat(b?.lessonNumber) || 0;
       if (na !== nb) return na - nb;
       return (a?.id || "").localeCompare(b?.id || "");
     });
 
-    setMySchedule(newSchedule);
-  }, [schedule, userTarification, commonAltNamings]);
+    return out;
+  }, [schedule, userTarification, getAltNamingsForLesson]);
+
+  // ============================================================
+  //  CABINET LECTURES
+  // ============================================================
+  const myCabinetLectures = useMemo(() => {
+    if (!myCabinet || schedule.length === 0) return [];
+    const out = [];
+    schedule.forEach((g) => {
+      g.lessons.forEach((l) => {
+        if (l.cabinet && l.cabinet.includes(myCabinet)) {
+          out.push({ ...l, groupName: g.groupName });
+        }
+      });
+    });
+    out.sort(
+      (a, b) =>
+        (parseFloat(a?.lessonNumber) || 0) - (parseFloat(b?.lessonNumber) || 0),
+    );
+    return out;
+  }, [schedule, myCabinet]);
+
+  // ============================================================
+  //  HANDLERS
+  // ============================================================
+  const handleOpenModal = useCallback((groupName) => {
+    setCurrentGroupModal(groupName);
+    setModalActive(true);
+  }, []);
+
+  const handleOpenLinkModal = useCallback(() => setTelegramLinkModal(true), []);
+
+  const handleOpenAdvancedModal = useCallback(
+    (lessonId) => {
+      setCurrentLessonModal(userTarification.find((el) => el.id === lessonId));
+      setAdvancedModalActive(true);
+    },
+    [userTarification],
+  );
+
+  const handleChangeTheme = useCallback(() => {
+    setTheme(theme === "light" ? "dark" : "light");
+  }, [theme, setTheme]);
+
+  const isDuplicateLesson = useCallback(
+    (lesson) =>
+      userTarification.some(
+        (g) =>
+          normalize(g.groupName) === normalize(lesson.groupName) &&
+          normalize(g.lesson) === normalize(lesson.lessonName),
+      ),
+    [userTarification],
+  );
+
+  const addAlternativeName = async (lessonModal, altName) => {
+    const lessonName = lessonModal.lesson;
+    const lnNorm = normalize(lessonName);
+    const altNorm = normalize(altName);
+    const existing = commonAltNamings.find(
+      (it) => normalize(it.lessonName) === lnNorm,
+    );
+
+    let updated;
+    if (existing) {
+      if (existing.altNaming.some((el) => normalize(el) === altNorm)) {
+        alert("Название уже существует");
+        return;
+      }
+      updated = commonAltNamings.map((it) =>
+        normalize(it.lessonName) === lnNorm
+          ? { ...it, altNaming: [...it.altNaming, altName] }
+          : it,
+      );
+    } else {
+      updated = [...commonAltNamings, { lessonName, altNaming: [altName] }];
+    }
+    await saveCommonAltNamings(updated);
+  };
+
+  const addGroup = () => {
+    const dup = userTarification.some(
+      (g) =>
+        normalize(g.groupName) === normalize(selectGroupValue) &&
+        normalize(g.lesson) === normalize(inputLessonValue),
+    );
+    if (dup) {
+      console.log("Дубликат");
+      return;
+    }
+    const newGroup = {
+      id: uuidv4(),
+      groupName: selectGroupValue,
+      lesson: inputLessonValue,
+      lecture: checkboxLect,
+      labs: checkboxLab,
+    };
+    const updated = [...userTarification, newGroup];
+    setUserTarification(updated);
+    saveUserTarification(updated);
+  };
+
+  const addGroupFromModal = (lesson) => {
+    if (isDuplicateLesson(lesson)) {
+      alert(
+        'Группа с таким занятием уже существует. Удалите её в "Редактировать" и внесите вручную.',
+      );
+      return;
+    }
+    setCurrentLessonNameFromModal(lesson.lessonName);
+    setIsAddingFromModal(true);
+  };
 
   const handleAddHoursClick = () => {
     const refDate = dateKey || parseDateLabelToDDMMYYYY(dateSchedule);
-
     const writeData = () => {
       setLoadHours(1);
       set(
@@ -681,142 +572,46 @@ function App() {
         .then(() => {
           alert("Сохранено");
           setLoadHours(1);
-          setTimeout(() => {
-            setLoadHours(0);
-          }, 5000);
-          getHours();
+          setTimeout(() => setLoadHours(0), 5000);
         })
-        .catch((error) => {
-          console.log(error);
+        .catch((e) => {
+          console.log(e);
           setLoadHours(2);
-          setTimeout(() => {
-            setLoadHours(0);
-          }, 5000);
+          setTimeout(() => setLoadHours(0), 5000);
         });
     };
-
     if (mySchedule.length < 9) {
-      if (
-        confirm(
-          "Вы пытаетесь добавить в тарификацию меньше, чем 9 занятий, продолжить?",
-        )
-      ) {
+      if (confirm("Вы пытаетесь добавить меньше 9 занятий, продолжить?"))
         writeData();
-      }
-    } else {
-      writeData();
-    }
+    } else writeData();
   };
 
   const handleSignInClick = () =>
-    signInWithPopup(auth, provider)
-      .then(() => {})
-      .catch((error) => {
-        const errorCode = error.code;
-        const errorMessage = error.message;
-        console.log("error ", errorCode, errorMessage);
-      });
-
-  const handleLogOutClick = () => {
-    signOut(auth)
-      .then(() => {})
-      .catch((error) => {
-        console.log(error);
-      });
-  };
+    signInWithPopup(auth, provider).catch((e) =>
+      console.log("error", e.code, e.message),
+    );
+  const handleLogOutClick = () => signOut(auth).catch(console.log);
 
   const handleDeleteByID = (id) => {
-    const updatedTarification = userTarification.filter((el) => el.id !== id);
-    setUserTarification(updatedTarification);
-    saveUserTarification(updatedTarification);
-    filterSchedule();
+    const updated = userTarification.filter((el) => el.id !== id);
+    setUserTarification(updated);
+    saveUserTarification(updated);
   };
 
   const handleSetMyCabinet = () => {
     setMyCabinet(cabinetInputValue);
-    setCabinetInputValue("");
     saveUserCabinet(cabinetInputValue);
+    setCabinetInputValue("");
   };
 
-  useEffect(() => {
-    filterSchedule();
-    getHours();
-  }, [schedule, userTarification, commonAltNamings, filterSchedule]);
+  const handleFormSubmit = (e, cb) => {
+    e.preventDefault();
+    cb();
+  };
 
-  useEffect(() => {
-    if (user) {
-      get(ref(db, `users/${auth?.currentUser?.uid}/tarification`))
-        .then((snapshot) => {
-          if (snapshot.exists()) {
-            setUserTarification(snapshot.val());
-          } else {
-            if (localStorage.getItem("userTarification")) {
-              set(
-                ref(db, `users/${auth?.currentUser?.uid}/tarification`),
-                JSON.parse(localStorage.getItem("userTarification") || []),
-              );
-            }
-          }
-        })
-        .catch((error) => {
-          console.error(error);
-        });
-    } else {
-      setUserTarification(
-        JSON.parse(localStorage.getItem("userTarification")) || [],
-      );
-    }
-
-    if (user) {
-      get(ref(db, `users/${auth?.currentUser?.uid}/userInfo`))
-        .then((snapshot) => {
-          if (snapshot.exists()) {
-            setMyCabinet(snapshot.val().cabinet);
-          } else {
-            if (localStorage.getItem("userCabinet")) {
-              set(ref(db, `users/${auth?.currentUser?.uid}/userInfo`), {
-                cabinet: localStorage.getItem("userCabinet"),
-              });
-              console.log("localStorage To DB");
-            } else {
-              console.log("No cabinet yet");
-            }
-          }
-        })
-        .catch((error) => {
-          console.error(error);
-        });
-    }
-  }, [user]);
-
-  useEffect(() => {
-    const userId = auth?.currentUser?.uid;
-    if (!userId) return;
-    const hoursRef = ref(db, `users/${userId}/hours`);
-    const unsubscribe = onValue(
-      hoursRef,
-      (snapshot) => {
-        if (snapshot.exists()) {
-          setFetchedHours(snapshot.val());
-        } else {
-          console.log("No data available");
-          setFetchedHours(null);
-        }
-      },
-      (error) => {
-        console.error(error);
-      },
-    );
-    return () => unsubscribe();
-  }, []);
-
-  // Получаем дни для календаря
-  const daysInMonth = getDaysInMonth(
-    currentDate.getFullYear(),
-    currentDate.getMonth(),
-  );
-  const weekdays = ["ПН", "ВТ", "СР", "ЧТ", "ПТ", "СБ", "ВС"];
-
+  // ============================================================
+  //  RENDER
+  // ============================================================
   return (
     <AppWrapper>
       <Head>
@@ -829,14 +624,12 @@ function App() {
           <NavButton onClick={() => navigateDay(-1)} theme={theme}>
             ◀
           </NavButton>
-
           <DateSchedule
             onClick={() => setDatePickerModal(true)}
             style={{ cursor: "pointer", userSelect: "none" }}
           >
             {isLoading ? "Загрузка..." : dateSchedule}
           </DateSchedule>
-
           <NavButton onClick={() => navigateDay(1)} theme={theme}>
             ▶
           </NavButton>
@@ -855,7 +648,7 @@ function App() {
         <ThemeSwitcher handleChangeTheme={handleChangeTheme} theme={theme} />
       </Head>
 
-      {/* Модальное окно выбора даты */}
+      {/* Календарь */}
       <Modal active={datePickerModal} setActive={setDatePickerModal}>
         <DatePickerContainer theme={theme}>
           <DatePickerHeader theme={theme}>
@@ -872,26 +665,20 @@ function App() {
               ▶
             </NavButton>
           </DatePickerHeader>
-
           <DatePickerGrid>
-            {weekdays.map((day) => (
-              <DatePickerWeekday key={day} theme={theme}>
-                {day}
+            {WEEKDAYS.map((d) => (
+              <DatePickerWeekday key={d} theme={theme}>
+                {d}
               </DatePickerWeekday>
             ))}
-
-            {daysInMonth.map((date, index) => {
-              if (!date) {
-                return <DatePickerDay key={`empty-${index}`} />;
-              }
-
-              const dateKey = formatDate(date);
-              const isAvailable = availableDates.includes(dateKey);
-              const isToday = formatDate(new Date()) === dateKey;
-
+            {daysInMonth.map((date, idx) => {
+              if (!date) return <DatePickerDay key={`empty-${idx}`} />;
+              const dKey = formatDate(date);
+              const isAvailable = availableDates.includes(dKey);
+              const isToday = formatDate(new Date()) === dKey;
               return (
                 <DatePickerDayButton
-                  key={dateKey}
+                  key={dKey}
                   isAvailable={isAvailable}
                   isToday={isToday}
                   onClick={() => isAvailable && selectDate(date)}
@@ -904,41 +691,35 @@ function App() {
               );
             })}
           </DatePickerGrid>
-
-          <div style={{ marginTop: "15px", fontSize: "12px", opacity: 0.7 }}>
+          <div style={{ marginTop: 15, fontSize: 12, opacity: 0.7 }}>
             💡 Доступные даты отмечены точкой
           </div>
         </DatePickerContainer>
       </Modal>
 
       <Tarification>
-        <AddPanel
-          onSubmit={(e) => {
-            handleFormSubmit(e, addGroup);
-          }}
-          action=""
-        >
+        <AddPanel onSubmit={(e) => handleFormSubmit(e, addGroup)} action="">
           <CustomInput
-            handleInputChange={onLessonInputChange}
+            handleInputChange={(e) => setInputLessonValue(e.target.value)}
             inputValue={inputLessonValue}
             placeholder="Название предмета"
           />
-          <CustomSelect handleSelectChange={handleSelectGroup} />
+          <CustomSelect
+            handleSelectChange={(e) => setSelectGroupValue(e.target.value)}
+          />
           <CheckboxWrapper>
             <Checkbox
               label={"Лабораторные"}
-              handleCheckBoxChange={handleCheckboxLab}
+              handleCheckBoxChange={() => setCheckboxLab((p) => !p)}
             />
             <Checkbox
               label={"Лекции"}
-              handleCheckBoxChange={handleCheckboxLect}
+              handleCheckBoxChange={() => setCheckboxLect((p) => !p)}
             />
           </CheckboxWrapper>
           <FormButton type="submit">Добавить</FormButton>
           <FormButton
-            onClick={() => {
-              setShowTarification((prev) => !prev);
-            }}
+            onClick={() => setShowTarification((p) => !p)}
             type="button"
           >
             Редактировать
@@ -954,11 +735,7 @@ function App() {
                 <GroupName>{el.groupName}</GroupName>
                 <p>Лаб. {el.labs ? "Есть" : "Нет"}</p>
                 <p>Лекции {el.lecture ? "Есть" : "Нет"}</p>
-                <FormButton
-                  onClick={() => {
-                    handleOpenAdvancedModal(el.id);
-                  }}
-                >
+                <FormButton onClick={() => handleOpenAdvancedModal(el.id)}>
                   Добавить названия
                 </FormButton>
                 <FormButtonDelete onClick={() => handleDeleteByID(el.id)}>
@@ -993,7 +770,7 @@ function App() {
             <>
               <MyCabinetInputWrapper>
                 <MyCabinetInput
-                  onChange={handleCabinetInputChange}
+                  onChange={(e) => setCabinetInputValue(e.target.value)}
                   value={cabinetInputValue}
                   type="text"
                   placeholder={`Ваш кабинет: ${myCabinet || "не указан"}`}
@@ -1002,15 +779,11 @@ function App() {
                   +
                 </SetCabinetNumber>
               </MyCabinetInputWrapper>
-              <div>
-                <ToggleButton
-                  displayName={"Ваш кабинет"}
-                  displayNameAlt={"Ваше расписание"}
-                  handleClick={() => {
-                    setIsCabinetMode((prev) => !prev);
-                  }}
-                />
-              </div>
+              <ToggleButton
+                displayName={"Ваш кабинет"}
+                displayNameAlt={"Ваше расписание"}
+                handleClick={() => setIsCabinetMode((p) => !p)}
+              />
             </>
           )}
         </HeaderSchedule>
@@ -1018,40 +791,25 @@ function App() {
         {viewMode === "my" ? (
           <>
             <ScheduleWrapper>
-              {!isCabinetMode &&
-                mySchedule.map((el) => (
-                  <LessonWrapper key={el.id}>
-                    <CabinetNumber>{el.lessonNumber}</CabinetNumber>
-                    <LessonName>{lessonsTime[el.lessonNumber]}</LessonName>
-                    <LessonName>{el.lessonName}</LessonName>
-                    <GroupName
-                      onClick={() => {
-                        handleOpenModal(el.groupName);
-                      }}
-                    >
-                      {el.groupName}
-                    </GroupName>
-                    <CabinetNumber>{el.cabinet}</CabinetNumber>
-                  </LessonWrapper>
-                ))}
-              {isCabinetMode &&
-                myCabinetLectures.map((el, index) => (
+              {(isCabinetMode ? myCabinetLectures : mySchedule).map(
+                (el, index) => (
                   <LessonWrapper
-                    key={`${el.lessonName + el.lessonNumber + index}`}
+                    key={
+                      isCabinetMode
+                        ? `${el.lessonName}${el.lessonNumber}${index}`
+                        : el.id
+                    }
                   >
                     <CabinetNumber>{el.lessonNumber}</CabinetNumber>
                     <LessonName>{lessonsTime[el.lessonNumber]}</LessonName>
                     <LessonName>{el.lessonName}</LessonName>
-                    <GroupName
-                      onClick={() => {
-                        handleOpenModal(el.groupName);
-                      }}
-                    >
+                    <GroupName onClick={() => handleOpenModal(el.groupName)}>
                       {el.groupName}
                     </GroupName>
                     <CabinetNumber>{el.cabinet}</CabinetNumber>
                   </LessonWrapper>
-                ))}
+                ),
+              )}
             </ScheduleWrapper>
             <HeaderSchedule>
               {user && (
@@ -1062,12 +820,12 @@ function App() {
                   >
                     Добавить в учет часов
                   </FormButton>
-                  <FormButton
-                    onClick={() => {
-                      setAccountingHoursModal(true);
-                    }}
-                  >
+                  <FormButton onClick={() => setAccountingHoursModal(true)}>
                     Открыть учет часов
+                  </FormButton>
+                  {/* 🆕 Новая кнопка автоматического учёта */}
+                  <FormButton onClick={() => setAutoHoursModal(true)}>
+                    Открыть АВТОМАТИЧЕСКИЙ учет часов
                   </FormButton>
                 </>
               )}
@@ -1088,8 +846,7 @@ function App() {
           {schedule
             .find(
               (obj) =>
-                obj.groupName.toLowerCase().trim() ===
-                currentGroupModal.toLowerCase().trim(),
+                normalize(obj.groupName) === normalize(currentGroupModal),
             )
             ?.lessons.map((lesson) => (
               <LessonWrapper key={lesson.lessonNumber}>
@@ -1117,20 +874,22 @@ function App() {
 
       <Modal active={advancedModalActive} setActive={setAdvancedModalActive}>
         <div>
-          Введите альтернативные названия для предмета <br />{" "}
+          Введите альтернативные названия для предмета <br />
           {currentLessonModal?.lesson}
         </div>
         <AddPanel
-          onSubmit={(e) => {
+          onSubmit={(e) =>
             handleFormSubmit(e, () => {
               addAlternativeName(currentLessonModal, altLessonNameInputValue);
               setAltLessonNameInputValue("");
-            });
-          }}
+            })
+          }
           action=""
         >
           <CustomInput
-            handleInputChange={onAltLessonNameInputChange}
+            handleInputChange={(e) =>
+              setAltLessonNameInputValue(e.target.value)
+            }
             inputValue={altLessonNameInputValue}
             placeholder="Альтернативное название"
           />
@@ -1143,13 +902,20 @@ function App() {
           ))}
       </Modal>
 
+      {/* Старый учёт часов */}
       <Modal active={accountingHoursModal} setActive={setAccountingHoursModal}>
         <ScheduleTable
           rawData={fetchedHours}
-          onRawDataChange={(data) => {
-            setFetchedHours(data);
-          }}
+          onRawDataChange={(data) => setFetchedHours(data)}
           userTarification={userTarification}
+        />
+      </Modal>
+
+      {/* 🆕 Автоматический учёт часов (логика 1:1 с сервером) */}
+      <Modal active={autoHoursModal} setActive={setAutoHoursModal}>
+        <AutoHoursAccounting
+          userTarification={userTarification}
+          commonAltNamings={commonAltNamings}
         />
       </Modal>
 
